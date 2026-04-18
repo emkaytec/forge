@@ -12,5 +12,5 @@
 
 ## 3. Documentation and verification
 
-- [ ] 3.1 Update the public repo docs with a concise description of branch validation, `main` build artifacts, and tag-driven CLI releases.
-- [ ] 3.2 Validate the change by reviewing the workflow ref guards and target matrix, then run `go test ./...` so the repo still passes locally after the workflow and doc edits.
+- [x] 3.1 Update the public repo docs with a concise description of branch validation, `main` build artifacts, and tag-driven CLI releases.
+- [x] 3.2 Validate the change by reviewing the workflow ref guards and target matrix, then run `go test ./...` so the repo still passes locally after the workflow and doc edits.

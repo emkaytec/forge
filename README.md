@@ -72,6 +72,14 @@ go build -o bin/forge ./cmd/forge
 ./bin/forge --help
 ```
 
+## CI/CD
+
+Forge publishes CLI artifacts through GitHub Actions workflows under `.github/workflows/`.
+
+- `build.yaml` runs `go test ./...` for pull requests and branch pushes.
+- Pushes to `main` also build Forge binaries for Linux and macOS on both `amd64` and `arm64`, then upload them as workflow artifacts.
+- `publish.yaml` runs on version tags matching `v*`, rebuilds the release matrix with the tag injected into `forge --version`, and publishes `.tar.gz` archives plus `SHA256SUMS.txt` to GitHub Releases.
+
 ## Architecture Decisions
 
 Strategic and architectural decisions for Forge should be tracked as ADRs under [docs/adr](docs/adr/README.md).
