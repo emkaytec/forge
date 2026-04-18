@@ -15,7 +15,7 @@ forge/
 │   ├── workstation/     # reserved: workstation setup domain (not yet implemented)
 │   ├── manifest/        # reserved: manifest authoring/inspection domain (not yet implemented)
 │   ├── reconcile/       # reserved: imperative reconciliation entrypoints (not yet implemented)
-│   ├── initcmd/         # reserved: `forge init` domain (directory renamed from `init` because Go reserves that identifier)
+│   ├── initcmd/         # reserved: `forge init` domain (renamed from `init` to avoid confusion with Go's special `init()` semantics and keep directory/package naming unambiguous)
 │   └── local/           # reserved: local development environment domain (not yet implemented)
 ├── pkg/                 # reserved: staging area for alloy-bound shared types (empty today)
 ├── docs/
