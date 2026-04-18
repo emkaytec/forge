@@ -11,6 +11,7 @@ import (
 )
 
 const bootstrapGroupID = "bootstrap"
+const demoGroupID = "demo"
 
 var unknownCommandPattern = regexp.MustCompile(`unknown command "([^"]+)"`)
 
@@ -46,7 +47,12 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 		ID:    bootstrapGroupID,
 		Title: "Bootstrap Commands",
 	})
+	root.AddGroup(&cobra.Group{
+		ID:    demoGroupID,
+		Title: "Demo Commands",
+	})
 	root.AddCommand(newHelpCommand(root))
+	root.AddCommand(newDemoCommand())
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		renderHelp(cmd.OutOrStdout(), cmd, false)
 	})

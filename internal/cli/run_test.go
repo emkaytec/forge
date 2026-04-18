@@ -94,3 +94,37 @@ func TestRunWithUnknownCommandWritesSuggestionAndHelpToStderr(t *testing.T) {
 		t.Fatalf("expected no stdout output, got %q", stdout.String())
 	}
 }
+
+func TestRunWithDemoBannerWritesBanner(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"demo", "banner"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "███████╗") {
+		t.Fatalf("expected banner output, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithDemoSpinnerWritesSuccessLine(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"demo", "spinner", "--duration", "1ms"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "✓ Spinner demo complete") {
+		t.Fatalf("expected success output, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
