@@ -90,9 +90,9 @@ Forge can update itself from the public GitHub Releases feed:
 
 The update command verifies the downloaded archive against the published `SHA256SUMS.txt` file before replacement. The installed binary must also live in a writable location, since Forge replaces the current executable in place.
 
-## Architecture Decisions
+## Architecture
 
-Strategic and architectural decisions for Forge should be tracked as ADRs under [docs/adr](docs/adr/README.md).
+The repository layout, the `internal/` vs `pkg/` split, and the cobra command registration pattern that new domains follow are documented in [ARCHITECTURE.md](ARCHITECTURE.md). Strategic and architectural decisions for Forge are tracked as ADRs under [docs/adr](docs/adr/README.md).
 
 ## AI-Assisted Development
 

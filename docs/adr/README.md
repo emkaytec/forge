@@ -8,4 +8,4 @@ These ADRs may be drafted with help from AI coding agents after extended discuss
 
 ## Index
 
-- No ADRs have been recorded yet.
+- [ADR 0001: Workspace and internal package layout](0001-workspace-and-package-layout.md)
