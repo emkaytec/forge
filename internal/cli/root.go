@@ -57,6 +57,7 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 	})
 	root.AddCommand(newHelpCommand(root))
 	root.AddCommand(newDemoCommand())
+	root.AddCommand(newUpdateCommand(version))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		renderHelp(cmd.OutOrStdout(), cmd, false)
 	})

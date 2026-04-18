@@ -80,6 +80,16 @@ Forge publishes CLI artifacts through GitHub Actions workflows under `.github/wo
 - Pushes to `main` also build Forge binaries for Linux and macOS on both `amd64` and `arm64`, then upload them as workflow artifacts.
 - `publish.yaml` runs on version tags matching `v*`, rebuilds the release matrix with the tag injected into `forge --version`, and publishes `.tar.gz` archives plus `SHA256SUMS.txt` to GitHub Releases.
 
+## Updating Forge
+
+Forge can update itself from the public GitHub Releases feed:
+
+- `forge update` installs the latest compatible release when a newer version is available.
+- `forge update --check` reports the current version and whether a newer compatible release exists without modifying the installed binary.
+- `forge update --version v0.1.0` installs a specific released version when its matching platform asset exists.
+
+The update command verifies the downloaded archive against the published `SHA256SUMS.txt` file before replacement. The installed binary must also live in a writable location, since Forge replaces the current executable in place.
+
 ## Architecture Decisions
 
 Strategic and architectural decisions for Forge should be tracked as ADRs under [docs/adr](docs/adr/README.md).
