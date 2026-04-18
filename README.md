@@ -1,0 +1,83 @@
+# Forge
+
+Forge is a Go CLI for imperative automations across cloud infrastructure, DevOps workflows, and local development environment setup.
+
+This repository is the public product repository for Forge. It is intended to show the product direction, implementation patterns, and documentation without exposing real production data.
+
+## Status
+
+This repository is an initial working scaffold.
+
+The current bootstrap establishes the public project shape, a lightweight Go CLI entrypoint, and the durable guidance/docs structure the repository will build on.
+
+Forge is intended to act as the umbrella CLI in the broader repo family. That does not erase the existing roles of sibling projects overnight:
+
+- `forge` is the product shell for operator-facing imperative automation
+- `anvil` remains the reconciliation engine boundary unless and until code is intentionally moved
+- `alloy` remains the shared schema and validation boundary
+
+## Core Principles
+
+- Keep the CLI lightweight, explicit, and easy to debug.
+- Prefer practical operator workflows over framework-heavy abstractions.
+- Preserve clear repo and package boundaries while the product shape evolves.
+- Keep public code and docs sanitized so real operational data stays private.
+- Start with a small intentional surface and expand only when the need is clear.
+
+## V1 Direction
+
+Forge v1 is expected to provide a focused CLI for imperative engineering tasks that do not fit neatly into declarative infrastructure or one-off shell scripts.
+
+Initial areas of interest:
+
+- cloud infrastructure helper workflows
+- DevOps and release workflow helpers
+- local development environment setup helpers
+
+## Non-Goals
+
+Forge bootstrap does not yet try to:
+
+- collapse `anvil`, `alloy`, and future authoring packages into one root package
+- define the final monorepo migration plan
+- embed real environment-specific data or operational identifiers
+- introduce plugin systems or framework-heavy scaffolding before they are needed
+
+## Public Repository Boundary
+
+This repository is intended to remain public.
+
+- Public documentation and examples must use sanitized placeholder values.
+- The repository must never include real credentials, secrets, account IDs, hostnames, or operational values.
+- Real manifests, inventories, and environment-specific configuration belong in separate private repositories or local private data stores.
+
+## Local Development
+
+Run the CLI help locally with:
+
+```bash
+go run ./cmd/forge --help
+```
+
+Run the current test suite with:
+
+```bash
+go test ./...
+```
+
+Build a local binary with:
+
+```bash
+go build -o bin/forge ./cmd/forge
+./bin/forge --help
+```
+
+## Architecture Decisions
+
+Strategic and architectural decisions for Forge should be tracked as ADRs under [docs/adr](docs/adr/README.md).
+
+## AI-Assisted Development
+
+AI agents may be used in this repository for coding assistance, drafting, and documentation generation.
+
+They are used to accelerate implementation and communication, not as a substitute for engineering judgment. Code and documentation kept in this repository are expected to be reviewed and understood by the repository author.

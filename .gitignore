@@ -1,0 +1,10 @@
+.DS_Store
+
+/bin/
+/dist/
+coverage.out
+*.coverprofile
+*.test
+
+.env
+.env.*
