@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/emkaytec/forge/internal/ui"
 )
 
 func TestRunWithNoArgsWritesHelp(t *testing.T) {
@@ -62,6 +64,49 @@ func TestRunWithVersionFlagWritesVersion(t *testing.T) {
 
 	if stderr.Len() != 0 {
 		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithShortVersionFlagWritesVersion(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"-v"}, &stdout, &stderr, "v1.2.3"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if stdout.String() != "v1.2.3\n" {
+		t.Fatalf("unexpected version output: %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithBogusCommandWritesHelpToStderr(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run([]string{"bogus"}, &stdout, &stderr, "dev")
+	if err == nil {
+		t.Fatal("expected error for unknown command")
+	}
+
+	if !strings.Contains(err.Error(), `unknown command "bogus"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(stderr.String(), "Available commands:") {
+		t.Fatalf("expected help output in stderr, got %q", stderr.String())
+	}
+
+	if strings.Contains(stderr.String(), "███████╗") {
+		t.Fatalf("expected bogus command help to omit the banner, got %q", stderr.String())
+	}
+
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got %q", stdout.String())
 	}
 }
 
@@ -126,5 +171,42 @@ func TestRunWithDemoSpinnerWritesSuccessLine(t *testing.T) {
 
 	if stderr.Len() != 0 {
 		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithNoColorProducesNoANSIInHelpOrBanner(t *testing.T) {
+	t.Setenv("NO_COLOR", "true")
+
+	var helpStdout bytes.Buffer
+	var helpStderr bytes.Buffer
+	if err := Run([]string{"--help"}, &helpStdout, &helpStderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if strings.Contains(helpStdout.String(), "\x1b[") {
+		t.Fatalf("expected help output without ANSI, got %q", helpStdout.String())
+	}
+
+	var banner bytes.Buffer
+	ui.Banner(&banner, ui.Profile())
+	if strings.Contains(banner.String(), "\x1b[") {
+		t.Fatalf("expected banner output without ANSI, got %q", banner.String())
+	}
+}
+
+func TestRunWithHelpListsDemoGroup(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"--help"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "Demo Commands") {
+		t.Fatalf("expected demo group in help output, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "demo") {
+		t.Fatalf("expected demo command in help output, got %q", stdout.String())
 	}
 }
