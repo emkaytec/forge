@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/emkaytec/forge/internal/ui"
@@ -11,8 +12,16 @@ import (
 
 const bootstrapGroupID = "bootstrap"
 
+var unknownCommandPattern = regexp.MustCompile(`unknown command "([^"]+)"`)
+
+type Options struct {
+	Verbose bool
+	Debug   bool
+}
+
 func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
-	_ = version
+	options := &Options{}
+	var versionRequested bool
 
 	root := &cobra.Command{
 		Use:           "forge",
@@ -20,6 +29,11 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if versionRequested {
+				fmt.Fprintln(cmd.OutOrStdout(), version)
+				return nil
+			}
+
 			renderHelp(cmd.OutOrStdout(), cmd, true)
 			return nil
 		},
@@ -36,6 +50,9 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		renderHelp(cmd.OutOrStdout(), cmd, false)
 	})
+	root.Flags().BoolVarP(&versionRequested, "version", "v", false, "Print the Forge version")
+	root.PersistentFlags().BoolVar(&options.Verbose, "verbose", false, "Enable verbose output")
+	root.PersistentFlags().BoolVar(&options.Debug, "debug", false, "Enable debug output")
 
 	return root
 }
@@ -65,6 +82,7 @@ func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
 	fmt.Fprintln(w)
 
 	writeGroupedCommands(w, cmd)
+	writeFlags(w)
 }
 
 func writeGroupedCommands(w io.Writer, cmd *cobra.Command) {
@@ -109,4 +127,41 @@ func availableCommandsForGroup(cmd *cobra.Command, groupID string) []*cobra.Comm
 	}
 
 	return commands
+}
+
+func writeFlags(w io.Writer) {
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, ui.RenderHeading(w, "Flags:"))
+
+	flags := []struct {
+		name        string
+		description string
+	}{
+		{name: "-h, --help", description: "Show help for forge"},
+		{name: "-v, --version", description: "Print the Forge version"},
+		{name: "--verbose", description: "Enable verbose output"},
+		{name: "--debug", description: "Enable debug output"},
+	}
+
+	for _, flag := range flags {
+		fmt.Fprintf(
+			w,
+			"  %-16s %s\n",
+			ui.RenderCommand(w, flag.name),
+			ui.RenderMuted(w, flag.description),
+		)
+	}
+}
+
+func extractUnknownCommand(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	matches := unknownCommandPattern.FindStringSubmatch(err.Error())
+	if len(matches) != 2 {
+		return ""
+	}
+
+	return matches[1]
 }
