@@ -13,7 +13,7 @@ Fixing the answer once, before domain code arrives, keeps the Forge product shel
 ## What Changes
 
 - Initialize `go.work` at the repo root listing the current module. Today the workspace has one entry; tomorrow it can grow as additional modules are carved out.
-- Reserve a directory per planned command domain under `internal/`: `workstation/`, `manifest/`, `reconcile/`, `initcmd/`, `local/`. Each is a README-only placeholder until the owning ticket lands real code. The `init` directory from the MK-4 notes becomes `initcmd/` because `init` is a reserved identifier for Go package initializer functions and cannot be used as a package name.
+- Reserve a directory per planned command domain under `internal/`: `workstation/`, `manifest/`, `reconcile/`, `initcmd/`, `local/`. Each is a README-only placeholder until the owning ticket lands real code. The `init` directory from the MK-4 notes becomes `initcmd/` to avoid confusion with Go's special `init()` function name and to make the command-domain intent explicit.
 - Reserve `pkg/` at the repo root with a README describing it as the staging area for types and primitives intended to migrate to the shared-schema `alloy` module.
 - Document the cobra registration pattern in a new `ARCHITECTURE.md` at the repo root: each domain package exposes a single `Command() *cobra.Command` constructor, owns its `GroupID` constant, and is imported by `internal/cli` during root command assembly.
 - Capture the layout decision in an ADR under `docs/adr/` so the alternatives and trade-offs survive beyond this change folder.
