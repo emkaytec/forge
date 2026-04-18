@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/emkaytec/forge/internal/ui"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 const bootstrapGroupID = "bootstrap"
@@ -84,16 +86,45 @@ func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
 	fmt.Fprintln(w, cmd.Short)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, ui.RenderHeading(w, "Usage:"))
-	fmt.Fprintln(w, "  forge [command]")
+	fmt.Fprintf(w, "  %s\n", usageLine(cmd))
 	fmt.Fprintln(w)
 
-	writeGroupedCommands(w, cmd)
-	writeFlags(w)
+	writeAvailableCommands(w, cmd)
+	writeFlags(w, cmd)
 }
 
-func writeGroupedCommands(w io.Writer, cmd *cobra.Command) {
+func usageLine(cmd *cobra.Command) string {
+	if cmd.HasAvailableSubCommands() {
+		return cmd.CommandPath() + " [command]"
+	}
+
+	return cmd.CommandPath()
+}
+
+func writeAvailableCommands(w io.Writer, cmd *cobra.Command) {
 	fmt.Fprintln(w, ui.RenderHeading(w, "Available commands:"))
 
+	if writeGroupedCommands(w, cmd) {
+		return
+	}
+
+	commands := availableUngroupedCommands(cmd)
+	if len(commands) == 0 {
+		fmt.Fprintln(w, "  (no commands registered)")
+		return
+	}
+
+	for _, subcommand := range commands {
+		fmt.Fprintf(
+			w,
+			"  %-16s %s\n",
+			ui.RenderCommand(w, subcommand.Name()),
+			ui.RenderMuted(w, subcommand.Short),
+		)
+	}
+}
+
+func writeGroupedCommands(w io.Writer, cmd *cobra.Command) bool {
 	wroteGroup := false
 	for _, group := range cmd.Groups() {
 		commands := availableCommandsForGroup(cmd, group.ID)
@@ -113,9 +144,7 @@ func writeGroupedCommands(w io.Writer, cmd *cobra.Command) {
 		}
 	}
 
-	if !wroteGroup {
-		fmt.Fprintln(w, "  (no commands registered)")
-	}
+	return wroteGroup
 }
 
 func availableCommandsForGroup(cmd *cobra.Command, groupID string) []*cobra.Command {
@@ -135,19 +164,31 @@ func availableCommandsForGroup(cmd *cobra.Command, groupID string) []*cobra.Comm
 	return commands
 }
 
-func writeFlags(w io.Writer) {
+func availableUngroupedCommands(cmd *cobra.Command) []*cobra.Command {
+	var commands []*cobra.Command
+
+	for _, subcommand := range cmd.Commands() {
+		if !subcommand.IsAvailableCommand() || subcommand.Hidden {
+			continue
+		}
+		if strings.TrimSpace(subcommand.GroupID) != "" {
+			continue
+		}
+
+		commands = append(commands, subcommand)
+	}
+
+	return commands
+}
+
+func writeFlags(w io.Writer, cmd *cobra.Command) {
+	flags := visibleFlags(cmd)
+	if len(flags) == 0 {
+		return
+	}
+
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, ui.RenderHeading(w, "Flags:"))
-
-	flags := []struct {
-		name        string
-		description string
-	}{
-		{name: "-h, --help", description: "Show help for forge"},
-		{name: "-v, --version", description: "Print the Forge version"},
-		{name: "--verbose", description: "Enable verbose output"},
-		{name: "--debug", description: "Enable debug output"},
-	}
 
 	for _, flag := range flags {
 		fmt.Fprintf(
@@ -157,6 +198,54 @@ func writeFlags(w io.Writer) {
 			ui.RenderMuted(w, flag.description),
 		)
 	}
+}
+
+func visibleFlags(cmd *cobra.Command) []struct {
+	name        string
+	description string
+} {
+	flagMap := map[string]struct {
+		name        string
+		description string
+	}{}
+
+	recordFlag := func(flag *pflag.Flag) {
+		if flag == nil || flag.Hidden {
+			return
+		}
+
+		name := "--" + flag.Name
+		if flag.Shorthand != "" {
+			name = "-" + flag.Shorthand + ", " + name
+		}
+
+		flagMap[name] = struct {
+			name        string
+			description string
+		}{
+			name:        name,
+			description: flag.Usage,
+		}
+	}
+
+	cmd.NonInheritedFlags().VisitAll(recordFlag)
+	cmd.InheritedFlags().VisitAll(recordFlag)
+
+	names := make([]string, 0, len(flagMap))
+	for name := range flagMap {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	flags := make([]struct {
+		name        string
+		description string
+	}, 0, len(names))
+	for _, name := range names {
+		flags = append(flags, flagMap[name])
+	}
+
+	return flags
 }
 
 func extractUnknownCommand(err error) string {
