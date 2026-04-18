@@ -28,3 +28,48 @@ jobs:
 
       - name: Run tests
         run: go test ./...
+
+  build-main-artifacts:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          version="main-${GITHUB_SHA::7}"
+          mkdir -p dist
+          CGO_ENABLED=0 go build \
+            -ldflags "-X main.version=${version}" \
+            -o "dist/forge-${GOOS}-${GOARCH}" \
+            ./cmd/forge
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: forge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/forge-${{ matrix.goos }}-${{ matrix.goarch }}

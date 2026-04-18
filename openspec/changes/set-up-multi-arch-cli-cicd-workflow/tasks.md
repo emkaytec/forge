@@ -6,9 +6,9 @@
 
 ## 2. Build and release behavior
 
-- [ ] 2.1 Add a `main`-only build job that cross-compiles Forge binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` and uploads them as workflow artifacts.
-- [ ] 2.2 Add a tag-only release-asset build job in `publish.yaml` that cross-compiles the same matrix with build-time version injection and packages each target as `forge-<goos>-<goarch>.tar.gz`.
-- [ ] 2.3 Add a tag-only publish job in `publish.yaml` that downloads the archived assets, generates `SHA256SUMS.txt`, replaces any existing release for the tag, and publishes the GitHub release assets.
+- [x] 2.1 Add a `main`-only build job that cross-compiles Forge binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` and uploads them as workflow artifacts.
+- [x] 2.2 Add a tag-only release-asset build job in `publish.yaml` that cross-compiles the same matrix with build-time version injection and packages each target as `forge-<goos>-<goarch>.tar.gz`.
+- [x] 2.3 Add a tag-only publish job in `publish.yaml` that downloads the archived assets, generates `SHA256SUMS.txt`, replaces any existing release for the tag, and publishes the GitHub release assets.
 
 ## 3. Documentation and verification
 
