@@ -60,6 +60,7 @@ This repository is intended to remain public.
 ## Coding Patterns
 
 - Follow the lightweight Go layout already used in sibling repositories: `cmd/<app>` for the entrypoint and `internal/...` for application code.
+- See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the canonical workspace layout, the `internal/<domain>/` convention, the `pkg/` reservation, and the cobra `Command() *cobra.Command` registration pattern that new command domains follow.
 - Prefer direct command handling over deep abstraction.
 - Keep the bootstrap easy to evolve rather than prematurely optimizing the package structure.
 - Add tests when they meaningfully pin down command behavior or tricky logic.
