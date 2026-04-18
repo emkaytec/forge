@@ -41,7 +41,7 @@ func TestRunWithExplicitHelpOmitsBanner(t *testing.T) {
 		t.Fatalf("expected explicit help to omit the banner, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "Available commands:") {
+	if !strings.Contains(stdout.String(), "Available Commands:") {
 		t.Fatalf("stdout did not contain help text: %q", stdout.String())
 	}
 
@@ -97,7 +97,7 @@ func TestRunWithBogusCommandWritesHelpToStderr(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(stderr.String(), "Available commands:") {
+	if !strings.Contains(stderr.String(), "Available Commands:") {
 		t.Fatalf("expected help output in stderr, got %q", stderr.String())
 	}
 
@@ -127,7 +127,7 @@ func TestRunWithUnknownCommandWritesSuggestionAndHelpToStderr(t *testing.T) {
 		t.Fatalf("expected suggestion in stderr, got %q", stderr.String())
 	}
 
-	if !strings.Contains(stderr.String(), "Available commands:") {
+	if !strings.Contains(stderr.String(), "Available Commands:") {
 		t.Fatalf("expected help output in stderr, got %q", stderr.String())
 	}
 
@@ -202,12 +202,24 @@ func TestRunWithHelpListsDemoGroup(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "Demo Commands") {
+	if !strings.Contains(stdout.String(), "Demo Commands:") {
 		t.Fatalf("expected demo group in help output, got %q", stdout.String())
 	}
 
 	if !strings.Contains(stdout.String(), "demo") {
 		t.Fatalf("expected demo command in help output, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Bootstrap Commands:\n  help") {
+		t.Fatalf("expected bootstrap group in help output, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Demo Commands:\n  demo") {
+		t.Fatalf("expected demo group contents in help output, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "-h, --help       Show help for forge") {
+		t.Fatalf("expected polished help flag copy, got %q", stdout.String())
 	}
 }
 

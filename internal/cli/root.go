@@ -45,6 +45,8 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.CompletionOptions.DisableDefaultCmd = true
+	root.SetHelpCommand(&cobra.Command{Hidden: true})
+	root.SetHelpCommandGroupID("")
 	root.AddGroup(&cobra.Group{
 		ID:    bootstrapGroupID,
 		Title: "Bootstrap Commands",
@@ -58,7 +60,11 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		renderHelp(cmd.OutOrStdout(), cmd, false)
 	})
+	root.InitDefaultHelpFlag()
 	root.Flags().BoolVarP(&versionRequested, "version", "v", false, "Print the Forge version")
+	if helpFlag := root.Flags().Lookup("help"); helpFlag != nil {
+		helpFlag.Usage = "Show help for forge"
+	}
 	root.PersistentFlags().BoolVar(&options.Verbose, "verbose", false, "Enable verbose output")
 	root.PersistentFlags().BoolVar(&options.Debug, "debug", false, "Enable debug output")
 
@@ -102,7 +108,7 @@ func usageLine(cmd *cobra.Command) string {
 }
 
 func writeAvailableCommands(w io.Writer, cmd *cobra.Command) {
-	fmt.Fprintln(w, ui.RenderHeading(w, "Available commands:"))
+	fmt.Fprintln(w, ui.RenderHeading(w, "Available Commands:"))
 
 	if writeGroupedCommands(w, cmd) {
 		return
@@ -126,6 +132,7 @@ func writeAvailableCommands(w io.Writer, cmd *cobra.Command) {
 
 func writeGroupedCommands(w io.Writer, cmd *cobra.Command) bool {
 	wroteGroup := false
+	wroteAnyCommands := false
 	for _, group := range cmd.Groups() {
 		commands := availableCommandsForGroup(cmd, group.ID)
 		if len(commands) == 0 {
@@ -133,7 +140,10 @@ func writeGroupedCommands(w io.Writer, cmd *cobra.Command) bool {
 		}
 
 		wroteGroup = true
-		fmt.Fprintln(w, ui.RenderHeading(w, group.Title))
+		if wroteAnyCommands {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, ui.RenderHeading(w, group.Title+":"))
 		for _, subcommand := range commands {
 			fmt.Fprintf(
 				w,
@@ -142,6 +152,7 @@ func writeGroupedCommands(w io.Writer, cmd *cobra.Command) bool {
 				ui.RenderMuted(w, subcommand.Short),
 			)
 		}
+		wroteAnyCommands = true
 	}
 
 	return wroteGroup
