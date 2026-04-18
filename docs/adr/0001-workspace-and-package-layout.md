@@ -31,7 +31,7 @@ A `go.work` file at the repo root lists `./` as its only module. Carve-outs into
 
 ### 3. Rename the `init` domain directory to `initcmd`
 
-The MK-4 proposed layout uses `internal/init/`. Go reserves `init` as the identifier for package initializer functions, which makes `package init` illegal. A directory named `init` with an inner `package initcmd` would mismatch directory and package names and confuse tools that assume the two line up. Renaming the directory to `initcmd/` and the package to `initcmd` eliminates the confusion. The cobra command itself is still named `init`.
+The MK-4 proposed layout uses `internal/init/`. While `init` is a valid package name in Go, it is closely associated with the language's special `init()` function semantics and would be easy to misread in code review, docs, and IDE navigation. Using a directory named `init` with an inner `package initcmd` would also mismatch directory and package names and confuse tools and readers that assume the two line up. Renaming the directory to `initcmd/` and the package to `initcmd` avoids that ambiguity while keeping the filesystem and package naming consistent. The cobra command itself is still named `init`.
 
 **Alternatives considered**
 
