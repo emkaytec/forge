@@ -33,3 +33,15 @@ func stylesFor(w io.Writer) styles {
 		Error:   renderer.NewStyle().Foreground(ErrorColor),
 	}
 }
+
+func RenderHeading(w io.Writer, text string) string {
+	return stylesFor(w).Heading.Render(text)
+}
+
+func RenderMuted(w io.Writer, text string) string {
+	return stylesFor(w).Muted.Render(text)
+}
+
+func RenderCommand(w io.Writer, text string) string {
+	return rendererFor(w).NewStyle().Bold(true).Render(text)
+}
