@@ -87,17 +87,17 @@ func newHelpCommand(root *cobra.Command) *cobra.Command {
 func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
 	if includeBanner {
 		ui.Banner(w, ui.Profile())
-		fmt.Fprintln(w)
 	}
 
 	fmt.Fprintln(w, cmd.Short)
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, ui.RenderHeading(w, "Usage:"))
+	fmt.Fprintln(w, ui.RenderHeading(w, "Usage"))
 	fmt.Fprintf(w, "  %s\n", usageLine(cmd))
 	fmt.Fprintln(w)
 
-	writeAvailableCommands(w, cmd)
-	writeFlags(w, cmd)
+	colWidth := computeColumnWidth(cmd)
+	writeAvailableCommands(w, cmd, colWidth)
+	writeFlags(w, cmd, colWidth)
 }
 
 func usageLine(cmd *cobra.Command) string {
@@ -108,55 +108,80 @@ func usageLine(cmd *cobra.Command) string {
 	return cmd.CommandPath()
 }
 
-func writeAvailableCommands(w io.Writer, cmd *cobra.Command) {
-	fmt.Fprintln(w, ui.RenderHeading(w, "Available Commands:"))
+func computeColumnWidth(cmd *cobra.Command) int {
+	width := 0
+	consider := func(name string) {
+		if n := len(name); n > width {
+			width = n
+		}
+	}
 
-	if writeGroupedCommands(w, cmd) {
+	for _, subcommand := range cmd.Commands() {
+		if !subcommand.IsAvailableCommand() || subcommand.Hidden {
+			continue
+		}
+		consider(subcommand.Name())
+	}
+
+	for _, f := range visibleFlags(cmd) {
+		consider(f.name)
+	}
+
+	// Minimum width keeps short command lists from feeling cramped.
+	if width < 10 {
+		width = 10
+	}
+
+	return width
+}
+
+func writeAvailableCommands(w io.Writer, cmd *cobra.Command, colWidth int) {
+	if writeGroupedCommands(w, cmd, colWidth) {
 		return
 	}
 
 	commands := availableUngroupedCommands(cmd)
 	if len(commands) == 0 {
+		fmt.Fprintln(w, ui.RenderHeading(w, "Commands"))
 		fmt.Fprintln(w, "  (no commands registered)")
 		return
 	}
 
-	for _, subcommand := range commands {
-		fmt.Fprintf(
-			w,
-			"  %-16s %s\n",
-			ui.RenderCommand(w, subcommand.Name()),
-			ui.RenderMuted(w, subcommand.Short),
-		)
-	}
+	fmt.Fprintln(w, ui.RenderHeading(w, "Commands"))
+	writeCommandList(w, commands, colWidth)
 }
 
-func writeGroupedCommands(w io.Writer, cmd *cobra.Command) bool {
+func writeGroupedCommands(w io.Writer, cmd *cobra.Command, colWidth int) bool {
 	wroteGroup := false
-	wroteAnyCommands := false
 	for _, group := range cmd.Groups() {
 		commands := availableCommandsForGroup(cmd, group.ID)
 		if len(commands) == 0 {
 			continue
 		}
 
-		wroteGroup = true
-		if wroteAnyCommands {
+		if wroteGroup {
 			fmt.Fprintln(w)
 		}
-		fmt.Fprintln(w, ui.RenderHeading(w, group.Title+":"))
-		for _, subcommand := range commands {
-			fmt.Fprintf(
-				w,
-				"  %-16s %s\n",
-				ui.RenderCommand(w, subcommand.Name()),
-				ui.RenderMuted(w, subcommand.Short),
-			)
-		}
-		wroteAnyCommands = true
+		fmt.Fprintln(w, ui.RenderHeading(w, strings.TrimSuffix(group.Title, " Commands")))
+		writeCommandList(w, commands, colWidth)
+		wroteGroup = true
 	}
 
 	return wroteGroup
+}
+
+func writeCommandList(w io.Writer, commands []*cobra.Command, colWidth int) {
+	for _, subcommand := range commands {
+		name := subcommand.Name()
+		pad := strings.Repeat(" ", colWidth-len(name))
+		fmt.Fprintf(
+			w,
+			"  %s%s   %s\n",
+			ui.RenderCommand(w, name),
+			pad,
+			ui.RenderMuted(w, subcommand.Short),
+		)
+	}
 }
 
 func availableCommandsForGroup(cmd *cobra.Command, groupID string) []*cobra.Command {
@@ -193,20 +218,22 @@ func availableUngroupedCommands(cmd *cobra.Command) []*cobra.Command {
 	return commands
 }
 
-func writeFlags(w io.Writer, cmd *cobra.Command) {
+func writeFlags(w io.Writer, cmd *cobra.Command, colWidth int) {
 	flags := visibleFlags(cmd)
 	if len(flags) == 0 {
 		return
 	}
 
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, ui.RenderHeading(w, "Flags:"))
+	fmt.Fprintln(w, ui.RenderHeading(w, "Flags"))
 
 	for _, flag := range flags {
+		pad := strings.Repeat(" ", colWidth-len(flag.name))
 		fmt.Fprintf(
 			w,
-			"  %-16s %s\n",
+			"  %s%s   %s\n",
 			ui.RenderCommand(w, flag.name),
+			pad,
 			ui.RenderMuted(w, flag.description),
 		)
 	}
