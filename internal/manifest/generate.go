@@ -9,9 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/emkaytec/forge/internal/aws/accounts"
+	"github.com/emkaytec/forge/internal/aws/oidc"
 	"github.com/emkaytec/forge/internal/ui"
+	"github.com/emkaytec/forge/pkg/schema"
 	"github.com/spf13/cobra"
 )
+
+var defaultManagedPolicies = []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"}
 
 type manifestTemplate struct {
 	resource     string
@@ -41,8 +46,8 @@ type hcpTFWorkspaceTemplateData struct {
 }
 
 type awsIAMProvisionerTemplateData struct {
-	ManifestName    string
-	ProvisionerName string
+	ApplicationName string
+	RoleName        string
 	AccountID       string
 	OIDCProvider    string
 	OIDCSubject     string
@@ -84,12 +89,7 @@ func newGenerateCommand() *cobra.Command {
 			render:       renderHCPTFWorkspaceTemplate,
 			promptRender: promptHCPTFWorkspaceTemplate,
 		}),
-		newGenerateTemplateCommand(manifestTemplate{
-			resource:     "aws-iam-provisioner",
-			filename:     "aws-iam-provisioner",
-			render:       renderAWSIAMProvisionerTemplate,
-			promptRender: promptAWSIAMProvisionerTemplate,
-		}),
+		newGenerateAWSIAMProvisionerCommand(),
 		newGenerateTemplateCommand(manifestTemplate{
 			resource:     "launch-agent",
 			filename:     "launch-agent",
@@ -111,15 +111,14 @@ func newGenerateTemplateCommand(template manifestTemplate) *cobra.Command {
 		Example: fmt.Sprintf("  forge manifest generate %s example\n  forge manifest generate %s", template.resource, template.resource),
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			var contents string
-			var err error
+			var (
+				name     string
+				contents string
+				err      error
+			)
 
 			if len(args) == 0 {
 				name, contents, err = template.promptRender(cmd)
-				if err != nil {
-					return err
-				}
 			} else {
 				name = strings.TrimSpace(args[0])
 				if name == "" {
@@ -127,22 +126,11 @@ func newGenerateTemplateCommand(template manifestTemplate) *cobra.Command {
 				}
 				contents = template.render(name)
 			}
-
-			path, err := resolveOutputPath(name, outputDir)
 			if err != nil {
 				return err
 			}
 
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				return err
-			}
-
-			if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
-				return err
-			}
-
-			ui.Success(cmd.OutOrStdout(), fmt.Sprintf("Wrote %s manifest to %s", template.filename, path))
-			return nil
+			return writeGeneratedManifest(cmd, name, template.filename, outputDir, contents, defaultOutputPath)
 		},
 	}
 
@@ -151,7 +139,135 @@ func newGenerateTemplateCommand(template manifestTemplate) *cobra.Command {
 	return cmd
 }
 
-func resolveOutputPath(name, dir string) (string, error) {
+func newGenerateAWSIAMProvisionerCommand() *cobra.Command {
+	var (
+		outputDir      string
+		application    string
+		accountProfile string
+		accountID      string
+		providerKeys   []string
+		githubRepo     string
+		hcpWorkspace   string
+		managedPolicy  []string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "aws-iam-provisioner [application]",
+		Short: "Write a starter aws-iam-provisioner manifest",
+		Long: strings.TrimSpace(`Write a starter aws-iam-provisioner manifest.
+
+If the required inputs are not provided as flags, Forge prompts for:
+  1. the application name
+  2. the AWS account to target
+  3. one or more provisioning systems (GitHub Actions and/or HCP Terraform)
+  4. the repository or workspace identities used in the OIDC subjects
+  5. the managed policy ARNs to attach
+
+By default, Forge writes the manifest to <application>/aws-iam-provisioner.yaml.
+If multiple provisioning systems are selected, Forge writes one manifest per
+system under the application directory.`),
+		Example: strings.Join([]string{
+			"  forge manifest generate aws-iam-provisioner forge",
+			"  forge manifest generate aws-iam-provisioner --application forge --account-id 123456789012 --provider github-actions --github-repo emkaytec/forge --managed-policy arn:aws:iam::aws:policy/ReadOnlyAccess",
+			"  forge manifest generate aws-iam-provisioner --application forge --account-profile prod-admin --provider hcp-terraform --hcp-workspace emkaytec/platform/forge",
+			"  forge manifest generate aws-iam-provisioner --application forge --provider github-actions --provider hcp-terraform --github-repo emkaytec/forge --hcp-workspace emkaytec/platform/forge",
+		}, "\n"),
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
+
+			applicationName, err := resolveApplicationName(p, args, application)
+			if err != nil {
+				return err
+			}
+
+			accountIDValue, err := resolveAWSAccountID(p, accountProfile, accountID)
+			if err != nil {
+				return err
+			}
+
+			providers, err := resolveOIDCProviders(p, providerKeys)
+			if err != nil {
+				return err
+			}
+
+			targets, err := resolveProviderTargets(p, providers, githubRepo, hcpWorkspace)
+			if err != nil {
+				return err
+			}
+
+			policies, err := resolveManagedPolicies(p, managedPolicy)
+			if err != nil {
+				return err
+			}
+
+			return writeAWSIAMProvisionerManifests(cmd, applicationName, accountIDValue, providers, targets, policies, outputDir)
+		},
+	}
+
+	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
+	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the output directory")
+	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS config profile to resolve the target account from")
+	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
+	cmd.Flags().StringSliceVar(&providerKeys, "provider", nil, "Provisioning system to trust: github-actions or hcp-terraform (repeat to generate multiple provisioners)")
+	cmd.Flags().StringVar(&githubRepo, "github-repo", "", "GitHub repository path to trust for GitHub Actions, such as emkaytec/forge")
+	cmd.Flags().StringVar(&hcpWorkspace, "hcp-workspace", "", "HCP Terraform workspace path to trust, such as emkaytec/platform/forge")
+	cmd.Flags().StringSliceVar(&managedPolicy, "managed-policy", nil, "Managed policy ARN to attach (repeat or comma-separate)")
+
+	return cmd
+}
+
+type outputPathResolver func(manifestName, resource, dir string) (string, error)
+
+func writeGeneratedManifest(cmd *cobra.Command, manifestName, resource, outputDir, contents string, resolve outputPathResolver) error {
+	if err := validateGeneratedManifest(contents); err != nil {
+		return err
+	}
+
+	path, err := resolve(manifestName, resource, outputDir)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		return err
+	}
+
+	ui.Success(cmd.OutOrStdout(), fmt.Sprintf("Wrote %s manifest to %s", resource, path))
+	return nil
+}
+
+func validateGeneratedManifest(contents string) error {
+	if _, err := schema.DecodeManifest([]byte(contents)); err != nil {
+		return fmt.Errorf("generated manifest is invalid: %w", err)
+	}
+
+	return nil
+}
+
+func defaultOutputPath(name, _resource, dir string) (string, error) {
+	baseDir, err := resolveBaseOutputDir(dir)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(baseDir, name+".yaml"), nil
+}
+
+func applicationDirectoryOutputPath(name, resource, dir string) (string, error) {
+	baseDir, err := resolveBaseOutputDir(dir)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(baseDir, name, resource+".yaml"), nil
+}
+
+func resolveBaseOutputDir(dir string) (string, error) {
 	if filepath.IsAbs(dir) {
 		return "", fmt.Errorf("output directory must be relative, got %q", dir)
 	}
@@ -165,16 +281,18 @@ func resolveOutputPath(name, dir string) (string, error) {
 		baseDir = filepath.Join(baseDir, dir)
 	}
 
-	return filepath.Join(baseDir, name+".yaml"), nil
+	return baseDir, nil
 }
 
 type promptSession struct {
+	in     io.Reader
 	reader *bufio.Reader
 	out    io.Writer
 }
 
 func newPromptSession(in io.Reader, out io.Writer) *promptSession {
 	return &promptSession{
+		in:     in,
 		reader: bufio.NewReader(in),
 		out:    out,
 	}
@@ -261,11 +379,17 @@ func (p *promptSession) csv(label string, defaultValues []string) ([]string, err
 
 	parts := strings.Split(value, ",")
 	values := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			values = append(values, trimmed)
+		if trimmed == "" {
+			continue
 		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		values = append(values, trimmed)
 	}
 	return values, nil
 }
@@ -293,6 +417,223 @@ func (p *promptSession) line(label, defaultValue string) (string, error) {
 		return defaultValue, nil
 	}
 	return line, nil
+}
+
+func resolveApplicationName(p *promptSession, args []string, flagValue string) (string, error) {
+	flagValue = strings.TrimSpace(flagValue)
+	if len(args) > 0 {
+		argValue := strings.TrimSpace(args[0])
+		if flagValue != "" && flagValue != argValue {
+			return "", fmt.Errorf("application name %q does not match --application %q", argValue, flagValue)
+		}
+		if argValue == "" {
+			return "", fmt.Errorf("application name must not be empty")
+		}
+		return argValue, nil
+	}
+
+	if flagValue != "" {
+		return flagValue, nil
+	}
+
+	return p.required("Application name", "")
+}
+
+func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (string, error) {
+	accountProfile = strings.TrimSpace(accountProfile)
+	accountID = strings.TrimSpace(accountID)
+
+	profiles, err := accounts.LoadProfiles()
+	if err != nil {
+		return "", err
+	}
+
+	if accountProfile != "" {
+		profile, ok := accounts.FindProfile(profiles, accountProfile)
+		if !ok {
+			return "", fmt.Errorf("AWS profile %q was not found in local AWS config", accountProfile)
+		}
+		if accountID != "" {
+			return accountID, nil
+		}
+		if profile.AccountID == "" {
+			return "", fmt.Errorf("AWS profile %q does not expose an account ID; pass --account-id", accountProfile)
+		}
+		return profile.AccountID, nil
+	}
+
+	if accountID != "" {
+		return accountID, nil
+	}
+
+	if len(profiles) == 0 {
+		return p.required("AWS account ID", "")
+	}
+
+	options := make([]selectOption, 0, len(profiles)+1)
+	for _, profile := range profiles {
+		label := profile.Name
+		if profile.AccountID != "" {
+			label += " (" + profile.AccountID + ")"
+		} else {
+			label += " (account ID unavailable)"
+		}
+		options = append(options, selectOption{Label: label, Value: profile.Name})
+	}
+	options = append(options, selectOption{Label: "Enter an account ID manually", Value: "manual"})
+
+	selected, err := selectOnePrompt(p, "AWS account", options, 0)
+	if err != nil {
+		return "", err
+	}
+	if selected.Value == "manual" {
+		return p.required("AWS account ID", "")
+	}
+
+	profile, _ := accounts.FindProfile(profiles, selected.Value)
+	if profile.AccountID != "" {
+		return profile.AccountID, nil
+	}
+
+	return p.required("AWS account ID", "")
+}
+
+func resolveOIDCProviders(p *promptSession, providerKeys []string) ([]oidc.Provider, error) {
+	if len(providerKeys) > 0 {
+		resolved := make([]oidc.Provider, 0, len(providerKeys))
+		seen := map[string]struct{}{}
+		for _, providerKey := range providerKeys {
+			providerKey = strings.TrimSpace(providerKey)
+			if providerKey == "" {
+				continue
+			}
+			if _, ok := seen[providerKey]; ok {
+				continue
+			}
+			provider, ok := oidc.Lookup(providerKey)
+			if !ok {
+				return nil, fmt.Errorf("unsupported provider %q; use github-actions or hcp-terraform", providerKey)
+			}
+			seen[providerKey] = struct{}{}
+			resolved = append(resolved, provider)
+		}
+		if len(resolved) > 0 {
+			return resolved, nil
+		}
+	}
+
+	available := oidc.Providers()
+	options := make([]selectOption, 0, len(available))
+	for _, provider := range available {
+		options = append(options, selectOption{Label: provider.Label, Value: provider.Key})
+	}
+
+	selected, err := selectManyPrompt(p, "Provisioning systems", options, []int{0})
+	if err != nil {
+		return nil, err
+	}
+
+	resolved := make([]oidc.Provider, 0, len(selected))
+	for _, option := range selected {
+		provider, _ := oidc.Lookup(option.Value)
+		resolved = append(resolved, provider)
+	}
+
+	return resolved, nil
+}
+
+func resolveProviderTargets(p *promptSession, providers []oidc.Provider, githubRepo, hcpWorkspace string) (map[string]string, error) {
+	targets := make(map[string]string, len(providers))
+
+	for _, provider := range providers {
+		target, err := resolveProviderTarget(p, provider, githubRepo, hcpWorkspace)
+		if err != nil {
+			return nil, err
+		}
+		targets[provider.Key] = target
+	}
+
+	return targets, nil
+}
+
+func resolveProviderTarget(p *promptSession, provider oidc.Provider, githubRepo, hcpWorkspace string) (string, error) {
+	githubRepo = strings.TrimSpace(githubRepo)
+	hcpWorkspace = strings.TrimSpace(hcpWorkspace)
+
+	switch provider.Key {
+	case "github-actions":
+		if githubRepo != "" {
+			return githubRepo, nil
+		}
+		return p.required(provider.TargetLabel, "")
+	case "hcp-terraform":
+		if hcpWorkspace != "" {
+			return hcpWorkspace, nil
+		}
+		return p.required(provider.TargetLabel, "")
+	default:
+		return "", fmt.Errorf("unsupported provider %q", provider.Key)
+	}
+}
+
+func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accountID string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
+	multiProvider := len(providers) > 1
+	for _, provider := range providers {
+		target, ok := targets[provider.Key]
+		if !ok {
+			return fmt.Errorf("missing target identity for provider %q", provider.Key)
+		}
+
+		subject, err := provider.BuildSubject(target)
+		if err != nil {
+			return err
+		}
+
+		manifestName := applicationName
+		roleName := applicationName + "-provisioner-role"
+		resourceName := "aws-iam-provisioner"
+		if multiProvider {
+			manifestName = applicationName + "-" + provider.NameSuffix
+			roleName = applicationName + "-" + provider.NameSuffix + "-provisioner-role"
+			resourceName = resourceName + "-" + provider.NameSuffix
+		}
+
+		contents := renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
+			ApplicationName: manifestName,
+			RoleName:        roleName,
+			AccountID:       accountID,
+			OIDCProvider:    provider.Issuer,
+			OIDCSubject:     subject,
+			ManagedPolicies: policies,
+		})
+
+		if err := writeGeneratedManifest(cmd, applicationName, resourceName, outputDir, contents, applicationDirectoryOutputPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, error) {
+	if len(flagValues) > 0 {
+		values := make([]string, 0, len(flagValues))
+		seen := map[string]struct{}{}
+		for _, value := range flagValues {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			values = append(values, trimmed)
+		}
+		return values, nil
+	}
+
+	return p.csv("Managed policy ARNs (comma-separated)", defaultManagedPolicies)
 }
 
 func promptGitHubRepoTemplate(cmd *cobra.Command) (string, string, error) {
@@ -381,45 +722,6 @@ func promptHCPTFWorkspaceTemplate(cmd *cobra.Command) (string, string, error) {
 		TerraformVersion: terraformVersion,
 	}
 	return manifestName, renderHCPTFWorkspaceTemplateWithData(data), nil
-}
-
-func promptAWSIAMProvisionerTemplate(cmd *cobra.Command) (string, string, error) {
-	p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
-
-	manifestName, err := p.required("Manifest name", "")
-	if err != nil {
-		return "", "", err
-	}
-	provisionerName, err := p.required("Provisioner role name", manifestName)
-	if err != nil {
-		return "", "", err
-	}
-	accountID, err := p.required("AWS account ID", "123456789012")
-	if err != nil {
-		return "", "", err
-	}
-	oidcProvider, err := p.required("OIDC provider", "token.actions.githubusercontent.com")
-	if err != nil {
-		return "", "", err
-	}
-	oidcSubject, err := p.required("OIDC subject", "repo:emkaytec/forge:ref:refs/heads/main")
-	if err != nil {
-		return "", "", err
-	}
-	managedPolicies, err := p.csv("Managed policy ARNs (comma-separated)", []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"})
-	if err != nil {
-		return "", "", err
-	}
-
-	data := awsIAMProvisionerTemplateData{
-		ManifestName:    manifestName,
-		ProvisionerName: provisionerName,
-		AccountID:       accountID,
-		OIDCProvider:    oidcProvider,
-		OIDCSubject:     oidcSubject,
-		ManagedPolicies: managedPolicies,
-	}
-	return manifestName, renderAWSIAMProvisionerTemplateWithData(data), nil
 }
 
 func promptLaunchAgentTemplate(cmd *cobra.Command) (string, string, error) {
@@ -553,36 +855,25 @@ spec:
 `, data.ManifestName, data.ManifestName, data.WorkspaceName, data.Organization, data.Project, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
 }
 
-func renderAWSIAMProvisionerTemplate(name string) string {
-	return renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
-		ManifestName:    name,
-		ProvisionerName: name,
-		AccountID:       "123456789012",
-		OIDCProvider:    "token.actions.githubusercontent.com",
-		OIDCSubject:     "repo:emkaytec/forge:ref:refs/heads/main",
-		ManagedPolicies: []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
-	})
-}
-
 func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData) string {
 	return fmt.Sprintf(`# Generated by "forge manifest generate aws-iam-provisioner %s".
 apiVersion: forge/v1
 kind: aws-iam-provisioner
 metadata:
-  # metadata.name is the stable manifest identifier Forge reports on.
+  # metadata.name is the application identifier Forge reports on.
   name: %q
 spec:
-  # spec.name is the AWS IAM role name Forge will manage.
+  # spec.name is the AWS IAM role Forge will manage for this application.
   name: %q
   # account_id is the 12-digit AWS account identifier.
   account_id: %q
-  # oidc_provider is the trusted OIDC issuer host or ARN fragment.
+  # oidc_provider is the trusted OIDC issuer host.
   oidc_provider: %q
-  # oidc_subject is the subject pattern allowed to assume this role.
+  # oidc_subject scopes which workload identity may assume this role.
   oidc_subject: %q
   # managed_policies is optional and attaches AWS managed policy ARNs.
 %s
-`, data.ManifestName, data.ManifestName, data.ProvisionerName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
+`, data.ApplicationName, data.ApplicationName, data.RoleName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
 }
 
 func renderLaunchAgentTemplate(name string) string {
