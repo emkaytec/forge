@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/emkaytec/forge/internal/manifest"
 	"github.com/emkaytec/forge/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -55,8 +56,13 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 		ID:    demoGroupID,
 		Title: "Demo Commands",
 	})
+	root.AddGroup(&cobra.Group{
+		ID:    manifest.GroupID,
+		Title: "Manifest Commands",
+	})
 	root.AddCommand(newHelpCommand(root))
 	root.AddCommand(newDemoCommand())
+	root.AddCommand(manifest.Command())
 	root.AddCommand(newUpdateCommand(version))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		renderHelp(cmd.OutOrStdout(), cmd, false)
