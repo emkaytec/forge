@@ -15,7 +15,7 @@ func TestCommandRegistersManifestSubcommands(t *testing.T) {
 		t.Fatalf("GroupID = %q, want %q", cmd.GroupID, GroupID)
 	}
 
-	tests := []string{"generate", "validate"}
+	tests := []string{"compose", "generate", "validate"}
 	for _, subcommandName := range tests {
 		subcommand, _, err := cmd.Find([]string{subcommandName})
 		if err != nil {

@@ -43,7 +43,7 @@ If a new file could plausibly live in either directory, choose `internal/` until
 
 ## Command domains
 
-Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest generate` and `forge manifest validate`. The remaining reserved domains today are `workstation`, `reconcile`, `initcmd`, and `local`.
+Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest compose`, `forge manifest generate`, and `forge manifest validate`. The remaining reserved domains today are `workstation`, `reconcile`, `initcmd`, and `local`.
 
 ### Registration pattern
 
