@@ -96,6 +96,10 @@ func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
 	}
 
 	fmt.Fprintln(w, cmd.Short)
+	if longDescription := strings.TrimSpace(cmd.Long); longDescription != "" && longDescription != cmd.Short {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, longDescription)
+	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, ui.RenderHeading(w, "Usage"))
 	fmt.Fprintf(w, "  %s\n", usageLine(cmd))
@@ -104,6 +108,7 @@ func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
 	colWidth := computeColumnWidth(cmd)
 	writeAvailableCommands(w, cmd, colWidth)
 	writeFlags(w, cmd, colWidth)
+	writeExamples(w, cmd)
 }
 
 func usageLine(cmd *cobra.Command) string {
@@ -111,7 +116,12 @@ func usageLine(cmd *cobra.Command) string {
 		return cmd.CommandPath() + " [command]"
 	}
 
-	return cmd.CommandPath()
+	suffix := strings.TrimSpace(strings.TrimPrefix(cmd.Use, cmd.Name()))
+	if suffix == "" {
+		return cmd.CommandPath()
+	}
+
+	return cmd.CommandPath() + " " + suffix
 }
 
 func computeColumnWidth(cmd *cobra.Command) int {
@@ -242,6 +252,19 @@ func writeFlags(w io.Writer, cmd *cobra.Command, colWidth int) {
 			pad,
 			ui.RenderMuted(w, flag.description),
 		)
+	}
+}
+
+func writeExamples(w io.Writer, cmd *cobra.Command) {
+	example := strings.TrimSpace(cmd.Example)
+	if example == "" {
+		return
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, ui.RenderHeading(w, "Examples"))
+	for _, line := range strings.Split(example, "\n") {
+		fmt.Fprintln(w, line)
 	}
 }
 

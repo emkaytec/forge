@@ -124,3 +124,77 @@ func TestRunManifestGenerateRejectsAbsoluteDirectory(t *testing.T) {
 		t.Fatalf("expected no stderr output, got %q", stderr.String())
 	}
 }
+
+func TestManifestGeneratePromptsForAWSIAMProvisionerFieldsWhenNameOmitted(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	root := newRootCommand(&stdout, &stderr, "dev")
+	root.SetIn(strings.NewReader(strings.Join([]string{
+		"github-actions",
+		"github-actions",
+		"123456789012",
+		"token.actions.githubusercontent.com",
+		"repo:emkaytec/forge:ref:refs/heads/main",
+		"arn:aws:iam::aws:policy/ReadOnlyAccess",
+	}, "\n") + "\n"))
+	root.SetArgs([]string{"manifest", "generate", "aws-iam-provisioner"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	rendered, err := os.ReadFile(filepath.Join(tempDir, "github-actions.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	if !strings.Contains(contents, `kind: aws-iam-provisioner`) {
+		t.Fatalf("generated manifest did not contain aws-iam-provisioner kind: %q", contents)
+	}
+
+	if !strings.Contains(contents, `account_id: "123456789012"`) {
+		t.Fatalf("generated manifest did not contain prompted account_id: %q", contents)
+	}
+
+	if !strings.Contains(stdout.String(), "Manifest name:") {
+		t.Fatalf("expected manifest name prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "AWS account ID [123456789012]:") {
+		t.Fatalf("expected account ID prompt, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestGenerateHelpDocumentsOptionalNameArgument(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"manifest", "generate", "aws-iam-provisioner", "--help"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "forge manifest generate aws-iam-provisioner [name]") {
+		t.Fatalf("expected usage with optional name argument, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "If [name] is omitted, Forge prompts for the schema fields interactively.") {
+		t.Fatalf("expected interactive help text, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "forge manifest generate aws-iam-provisioner example") {
+		t.Fatalf("expected example usage, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
