@@ -13,6 +13,7 @@ func Command() *cobra.Command {
 		GroupID: GroupID,
 	}
 
+	cmd.AddCommand(newComposeCommand())
 	cmd.AddCommand(newGenerateCommand())
 	cmd.AddCommand(newValidateCommand())
 

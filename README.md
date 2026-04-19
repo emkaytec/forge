@@ -88,11 +88,14 @@ go build -o bin/forge ./cmd/forge
 
 Forge now ships a `manifest` command domain for starter manifest authoring and schema validation.
 
+- `forge manifest compose <blueprint> [name]`
 - `forge manifest generate github-repo <name>`
 - `forge manifest generate hcp-tf-workspace <name>`
 - `forge manifest generate aws-iam-provisioner <name>`
 - `forge manifest generate launch-agent <name>`
 - `forge manifest validate <file-or-directory>`
+
+`forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose ...` is reserved for higher-level blueprints that will emit several primitive manifests from one prompt flow.
 
 Generated manifests write `<name>.yaml` into the current directory by default. Pass `--dir <relative-path>` to place the generated file under a different relative directory.
 
