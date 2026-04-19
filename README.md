@@ -8,7 +8,7 @@ This repository is the public product repository for Forge. It is intended to sh
 
 This repository is an initial working scaffold.
 
-The current bootstrap establishes the public project shape, a lightweight Go CLI entrypoint, and the durable guidance/docs structure the repository will build on.
+The current bootstrap establishes the public project shape, a lightweight Go CLI entrypoint, the first manifest authoring and validation workflow, and the durable guidance/docs structure the repository will build on.
 
 Forge is intended to act as the umbrella CLI in the broader repo family. That does not erase the existing roles of sibling projects overnight:
 
@@ -59,6 +59,18 @@ Run the CLI help locally with:
 go run ./cmd/forge --help
 ```
 
+Generate a starter manifest in the current directory with:
+
+```bash
+go run ./cmd/forge manifest generate launch-agent brew-update
+```
+
+Validate one manifest file or every manifest in a directory with:
+
+```bash
+go run ./cmd/forge manifest validate ./examples
+```
+
 Run the current test suite with:
 
 ```bash
@@ -71,6 +83,23 @@ Build a local binary with:
 go build -o bin/forge ./cmd/forge
 ./bin/forge --help
 ```
+
+## Manifest Workflows
+
+Forge now ships a `manifest` command domain for starter manifest authoring and schema validation.
+
+- `forge manifest compose <blueprint> [name]`
+- `forge manifest generate github-repo <name>`
+- `forge manifest generate hcp-tf-workspace <name>`
+- `forge manifest generate aws-iam-provisioner <name>`
+- `forge manifest generate launch-agent <name>`
+- `forge manifest validate <file-or-directory>`
+
+`forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose ...` is reserved for higher-level blueprints that will emit several primitive manifests from one prompt flow.
+
+Generated manifests write `<name>.yaml` into the current directory by default. Pass `--dir <relative-path>` to place the generated file under a different relative directory.
+
+The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
 
 ## CI/CD
 

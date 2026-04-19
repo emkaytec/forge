@@ -8,6 +8,8 @@ import (
 
 var (
 	HeadingStyle = lipgloss.NewStyle().Bold(true).Foreground(PrimaryColor)
+	PrimaryStyle = lipgloss.NewStyle().Foreground(PrimaryColor)
+	BoldStyle    = lipgloss.NewStyle().Bold(true)
 	MutedStyle   = lipgloss.NewStyle().Foreground(MutedColor)
 	SuccessStyle = lipgloss.NewStyle().Foreground(SuccessColor)
 	WarningStyle = lipgloss.NewStyle().Foreground(WarningColor)

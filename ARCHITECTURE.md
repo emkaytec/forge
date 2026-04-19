@@ -13,10 +13,11 @@ forge/
 │   ├── ui/              # shared styled output primitives (banner, palette, writers)
 │   ├── update/          # self-update runtime used by the update command
 │   ├── workstation/     # reserved: workstation setup domain (not yet implemented)
-│   ├── manifest/        # reserved: manifest authoring/inspection domain (not yet implemented)
+│   ├── manifest/        # manifest authoring and validation domain
 │   ├── reconcile/       # reserved: imperative reconciliation entrypoints (not yet implemented)
 │   ├── initcmd/         # reserved: `forge init` domain (renamed from `init` to avoid confusion with Go's special `init()` semantics and keep directory/package naming unambiguous)
 │   └── local/           # reserved: local development environment domain (not yet implemented)
+├── examples/            # sanitized sample manifests and public-safe examples
 ├── pkg/                 # reserved: staging area for alloy-bound shared types (empty today)
 ├── docs/
 │   └── adr/             # architecture decision records
@@ -42,7 +43,7 @@ If a new file could plausibly live in either directory, choose `internal/` until
 
 ## Command domains
 
-Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. The reserved domains today are `workstation`, `manifest`, `reconcile`, `initcmd`, and `local`. Each reserved directory currently contains only a `README.md`; the first implementation ticket for a domain replaces that README with real Go source files.
+Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest compose`, `forge manifest generate`, and `forge manifest validate`. The remaining reserved domains today are `workstation`, `reconcile`, `initcmd`, and `local`.
 
 ### Registration pattern
 
@@ -86,7 +87,7 @@ Rules that the registration pattern pins down:
 - A domain does not register itself via `init()` side effects. The root command assembly lists every registered domain explicitly.
 - `internal/cli` is the only package that imports domain packages for registration. Domains do not import each other.
 
-Until a domain's first implementation ticket lands, its directory contains only a README and `internal/cli` does not import it. Help output is unchanged in the meantime.
+Until a reserved domain's first implementation ticket lands, its directory contains only a README and `internal/cli` does not import it. Help output is unchanged in the meantime.
 
 ## Existing non-domain packages
 
@@ -95,7 +96,7 @@ Until a domain's first implementation ticket lands, its directory contains only 
 ## Adding a new command
 
 1. Pick the domain that owns the command. If none of the reserved domains fit, open a discussion before adding a new top-level directory.
-2. Replace the domain's `README.md` with Go source files the first time real code lands. The `doc.go` file should carry the package comment; additional files contain the command, its subcommands, and any domain-local helpers.
+2. Replace the domain's `README.md` with Go source files the first time real code lands. The `doc.go` file should carry the package comment; additional files contain the command, its subcommands, and any domain-local helpers. `internal/manifest/` is the reference example.
 3. Expose the `Command() *cobra.Command` constructor and a `GroupID` constant as described above.
 4. Wire the domain into `internal/cli/root.go` by adding a cobra group and calling `root.AddCommand(<domain>.Command())`.
 5. Update the durable repository docs that define or constrain the command's behavior. In practice that usually means `README.md`, `ARCHITECTURE.md`, and an ADR when the change introduces a meaningful architectural decision or trade-off.
