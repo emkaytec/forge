@@ -143,3 +143,27 @@ spec:
 		t.Fatalf("expected no stdout output, got %q", stdout.String())
 	}
 }
+
+func TestRunManifestValidateRejectsEmptyDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run([]string{"manifest", "validate", tempDir}, &stdout, &stderr, "dev")
+	if err == nil {
+		t.Fatal("expected empty directory error")
+	}
+
+	if !strings.Contains(err.Error(), "does not contain any .yaml or .yml manifest files") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}

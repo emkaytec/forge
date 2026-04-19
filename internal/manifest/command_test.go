@@ -2,7 +2,7 @@ package manifest
 
 import "testing"
 
-func TestCommandRegistersGenerateSubcommand(t *testing.T) {
+func TestCommandRegistersManifestSubcommands(t *testing.T) {
 	t.Parallel()
 
 	cmd := Command()
@@ -15,16 +15,19 @@ func TestCommandRegistersGenerateSubcommand(t *testing.T) {
 		t.Fatalf("GroupID = %q, want %q", cmd.GroupID, GroupID)
 	}
 
-	subcommand, _, err := cmd.Find([]string{"generate"})
-	if err != nil {
-		t.Fatalf("Find(generate) error = %v", err)
-	}
+	tests := []string{"generate", "validate"}
+	for _, subcommandName := range tests {
+		subcommand, _, err := cmd.Find([]string{subcommandName})
+		if err != nil {
+			t.Fatalf("Find(%s) error = %v", subcommandName, err)
+		}
 
-	if subcommand == nil {
-		t.Fatal("generate subcommand was not registered")
-	}
+		if subcommand == nil {
+			t.Fatalf("%s subcommand was not registered", subcommandName)
+		}
 
-	if subcommand.Use != "generate" {
-		t.Fatalf("generate Use = %q, want generate", subcommand.Use)
+		if subcommand.Name() != subcommandName {
+			t.Fatalf("%s Name = %q, want %q", subcommandName, subcommand.Name(), subcommandName)
+		}
 	}
 }
