@@ -175,6 +175,7 @@ system under the application directory.`),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
+			configureAWSIAMProvisionerFlow(p)
 
 			applicationName, err := resolveApplicationName(p, args, application)
 			if err != nil {
@@ -199,6 +200,10 @@ system under the application directory.`),
 			policies, err := resolveManagedPolicies(p, managedPolicy)
 			if err != nil {
 				return err
+			}
+
+			if p.preludeDone {
+				fmt.Fprintln(p.out)
 			}
 
 			return writeAWSIAMProvisionerManifests(cmd, applicationName, accountIDValue, providers, targets, policies, outputDir)
@@ -285,9 +290,12 @@ func resolveBaseOutputDir(dir string) (string, error) {
 }
 
 type promptSession struct {
-	in     io.Reader
-	reader *bufio.Reader
-	out    io.Writer
+	in          io.Reader
+	reader      *bufio.Reader
+	out         io.Writer
+	labelWidth  int
+	prelude     func(io.Writer)
+	preludeDone bool
 }
 
 func newPromptSession(in io.Reader, out io.Writer) *promptSession {
@@ -296,6 +304,16 @@ func newPromptSession(in io.Reader, out io.Writer) *promptSession {
 		reader: bufio.NewReader(in),
 		out:    out,
 	}
+}
+
+// runPrelude emits the flow-level prelude (e.g. section header + leading
+// blank line) exactly once, right before the first prompt writes output.
+func (p *promptSession) runPrelude() {
+	if p.prelude == nil || p.preludeDone {
+		return
+	}
+	p.preludeDone = true
+	p.prelude(p.out)
 }
 
 func (p *promptSession) required(label, defaultValue string) (string, error) {
@@ -419,6 +437,25 @@ func (p *promptSession) line(label, defaultValue string) (string, error) {
 	return line, nil
 }
 
+func configureAWSIAMProvisionerFlow(p *promptSession) {
+	labels := []string{
+		"Application name",
+		"AWS account",
+		"AWS account ID",
+		"Provisioning systems",
+		"Managed policy ARNs (comma-separated)",
+	}
+	for _, provider := range oidc.Providers() {
+		labels = append(labels, provider.TargetLabel)
+	}
+	p.labelWidth = ui.ChipLabelWidth(labels...)
+	p.prelude = func(w io.Writer) {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, ui.RenderSectionHeader("Generate aws-iam-provisioner"))
+		fmt.Fprintln(w)
+	}
+}
+
 func resolveApplicationName(p *promptSession, args []string, flagValue string) (string, error) {
 	flagValue = strings.TrimSpace(flagValue)
 	if len(args) > 0 {
@@ -436,7 +473,7 @@ func resolveApplicationName(p *promptSession, args []string, flagValue string) (
 		return flagValue, nil
 	}
 
-	return p.required("Application name", "")
+	return inputPrompt(p, "Application name", "", true)
 }
 
 func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (string, error) {
@@ -467,7 +504,7 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (st
 	}
 
 	if len(profiles) == 0 {
-		return p.required("AWS account ID", "")
+		return inputPrompt(p, "AWS account ID", "", true)
 	}
 
 	options := make([]selectOption, 0, len(profiles)+1)
@@ -487,7 +524,7 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (st
 		return "", err
 	}
 	if selected.Value == "manual" {
-		return p.required("AWS account ID", "")
+		return inputPrompt(p, "AWS account ID", "", true)
 	}
 
 	profile, _ := accounts.FindProfile(profiles, selected.Value)
@@ -495,7 +532,7 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (st
 		return profile.AccountID, nil
 	}
 
-	return p.required("AWS account ID", "")
+	return inputPrompt(p, "AWS account ID", "", true)
 }
 
 func resolveOIDCProviders(p *promptSession, providerKeys []string) ([]oidc.Provider, error) {
@@ -565,12 +602,12 @@ func resolveProviderTarget(p *promptSession, provider oidc.Provider, githubRepo,
 		if githubRepo != "" {
 			return githubRepo, nil
 		}
-		return p.required(provider.TargetLabel, "")
+		return inputPrompt(p, provider.TargetLabel, "", true)
 	case "hcp-terraform":
 		if hcpWorkspace != "" {
 			return hcpWorkspace, nil
 		}
-		return p.required(provider.TargetLabel, "")
+		return inputPrompt(p, provider.TargetLabel, "", true)
 	default:
 		return "", fmt.Errorf("unsupported provider %q", provider.Key)
 	}
@@ -633,7 +670,34 @@ func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, er
 		return values, nil
 	}
 
-	return p.csv("Managed policy ARNs (comma-separated)", defaultManagedPolicies)
+	defaultText := strings.Join(defaultManagedPolicies, ",")
+	raw, err := inputPrompt(p, "Managed policy ARNs (comma-separated)", defaultText, false)
+	if err != nil {
+		return nil, err
+	}
+	return parseCSVValues(raw), nil
+}
+
+func parseCSVValues(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		values = append(values, trimmed)
+	}
+	return values
 }
 
 func promptGitHubRepoTemplate(cmd *cobra.Command) (string, string, error) {

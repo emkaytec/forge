@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/emkaytec/forge/internal/ui"
 	"github.com/mattn/go-isatty"
 )
 
@@ -17,6 +18,7 @@ type selectOption struct {
 
 type selectorModel struct {
 	title       string
+	labelWidth  int
 	options     []selectOption
 	cursor      int
 	multi       bool
@@ -27,27 +29,32 @@ type selectorModel struct {
 }
 
 func selectOnePrompt(p *promptSession, label string, options []selectOption, defaultIndex int) (selectOption, error) {
+	p.runPrelude()
+
 	if isInteractiveTerminal(p.in, p.out) {
-		return runTerminalSelector(p.out, label, options, defaultIndex)
+		return runTerminalSelector(p.out, label, p.labelWidth, options, defaultIndex)
 	}
 
 	return p.selectOneByNumber(label, options, defaultIndex)
 }
 
 func selectManyPrompt(p *promptSession, label string, options []selectOption, defaultIndices []int) ([]selectOption, error) {
+	p.runPrelude()
+
 	if isInteractiveTerminal(p.in, p.out) {
-		return runTerminalMultiSelector(p.out, label, options, defaultIndices)
+		return runTerminalMultiSelector(p.out, label, p.labelWidth, options, defaultIndices)
 	}
 
 	return p.selectManyByNumber(label, options, defaultIndices)
 }
 
-func runTerminalSelector(out io.Writer, label string, options []selectOption, defaultIndex int) (selectOption, error) {
+func runTerminalSelector(out io.Writer, label string, labelWidth int, options []selectOption, defaultIndex int) (selectOption, error) {
 	model := selectorModel{
-		title:    label,
-		options:  options,
-		cursor:   clampSelection(defaultIndex, len(options)),
-		selected: map[int]struct{}{},
+		title:      label,
+		labelWidth: labelWidth,
+		options:    options,
+		cursor:     clampSelection(defaultIndex, len(options)),
+		selected:   map[int]struct{}{},
 	}
 
 	finalModel, err := tea.NewProgram(model, tea.WithOutput(out)).Run()
@@ -63,7 +70,7 @@ func runTerminalSelector(out io.Writer, label string, options []selectOption, de
 	return selector.options[selector.cursor], nil
 }
 
-func runTerminalMultiSelector(out io.Writer, label string, options []selectOption, defaultIndices []int) ([]selectOption, error) {
+func runTerminalMultiSelector(out io.Writer, label string, labelWidth int, options []selectOption, defaultIndices []int) ([]selectOption, error) {
 	selected := make(map[int]struct{}, len(defaultIndices))
 	for _, index := range defaultIndices {
 		if index >= 0 && index < len(options) {
@@ -72,11 +79,12 @@ func runTerminalMultiSelector(out io.Writer, label string, options []selectOptio
 	}
 
 	model := selectorModel{
-		title:    label,
-		options:  options,
-		cursor:   0,
-		multi:    true,
-		selected: selected,
+		title:      label,
+		labelWidth: labelWidth,
+		options:    options,
+		cursor:     0,
+		multi:      true,
+		selected:   selected,
 	}
 
 	finalModel, err := tea.NewProgram(model, tea.WithOutput(out)).Run()
@@ -138,35 +146,60 @@ func (m selectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m selectorModel) View() string {
+	if m.confirmed {
+		return ui.RenderChip(m.title, m.confirmedSummary(), m.labelWidth) + "\n"
+	}
+
 	var builder strings.Builder
 	builder.WriteString(m.title + "\n")
 	if m.multi {
-		builder.WriteString("Use ↑/↓ to move, space to toggle, Enter to confirm.\n\n")
+		builder.WriteString(ui.MutedStyle.Render("Use ↑/↓ to move, space to toggle, Enter to confirm.") + "\n\n")
 	} else {
-		builder.WriteString("Use ↑/↓ to move and Enter to confirm.\n\n")
+		builder.WriteString(ui.MutedStyle.Render("Use ↑/↓ to move and Enter to confirm.") + "\n\n")
 	}
 
 	for i, option := range m.options {
+		focused := i == m.cursor
 		cursor := "  "
-		if i == m.cursor {
-			cursor = "> "
+		if focused {
+			cursor = ui.HeadingStyle.Render("❯ ")
 		}
 
-		marker := "  "
+		label := option.Label
+		if focused {
+			label = ui.BoldStyle.Render(option.Label)
+		}
+
 		if m.multi {
+			marker := ui.MutedStyle.Render("[ ]")
 			if _, ok := m.selected[i]; ok {
-				marker = "[x]"
-			} else {
-				marker = "[ ]"
+				marker = ui.PrimaryStyle.Render("[✓]")
 			}
-			builder.WriteString(fmt.Sprintf("%s%s %s\n", cursor, marker, option.Label))
+			builder.WriteString(fmt.Sprintf("%s%s %s\n", cursor, marker, label))
 			continue
 		}
 
-		builder.WriteString(fmt.Sprintf("%s%s\n", cursor, option.Label))
+		builder.WriteString(fmt.Sprintf("%s%s\n", cursor, label))
 	}
 
 	return strings.TrimRight(builder.String(), "\n")
+}
+
+func (m selectorModel) confirmedSummary() string {
+	if !m.multi {
+		if m.cursor >= 0 && m.cursor < len(m.options) {
+			return m.options[m.cursor].Label
+		}
+		return ""
+	}
+
+	labels := make([]string, 0, len(m.selected))
+	for i, option := range m.options {
+		if _, ok := m.selected[i]; ok {
+			labels = append(labels, option.Label)
+		}
+	}
+	return strings.Join(labels, ", ")
 }
 
 func isInteractiveTerminal(in io.Reader, out io.Writer) bool {
