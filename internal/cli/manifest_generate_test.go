@@ -100,3 +100,27 @@ func TestRunManifestGenerateWritesStarterManifestInRelativeDirectory(t *testing.
 		t.Fatalf("expected no stderr output, got %q", stderr.String())
 	}
 }
+
+func TestRunManifestGenerateRejectsAbsoluteDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run([]string{"manifest", "generate", "github-repo", "sample-repo", "--dir", tempDir}, &stdout, &stderr, "dev")
+	if err == nil {
+		t.Fatal("expected absolute directory error")
+	}
+
+	if !strings.Contains(err.Error(), "output directory must be relative") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
