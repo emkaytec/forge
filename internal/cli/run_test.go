@@ -223,6 +223,27 @@ func TestRunWithHelpListsDemoGroup(t *testing.T) {
 	}
 }
 
+func TestRunWithHelpListsManifestGroup(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"--help"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "Manifest") {
+		t.Fatalf("expected manifest group in help output, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "manifest") {
+		t.Fatalf("expected manifest command in help output, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Manifest\n  manifest") {
+		t.Fatalf("expected manifest group contents in help output, got %q", stdout.String())
+	}
+}
+
 func TestRunWithDemoShowsSubcommands(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -262,6 +283,27 @@ func TestRunWithDemoHelpShowsSubcommands(t *testing.T) {
 
 	if strings.Contains(stdout.String(), "███████╗") {
 		t.Fatalf("expected demo help to omit the banner, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithManifestShowsGenerateSubcommand(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"manifest"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "forge manifest [command]") {
+		t.Fatalf("expected manifest usage path, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "generate") {
+		t.Fatalf("expected generate subcommand in output, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
