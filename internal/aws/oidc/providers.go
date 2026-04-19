@@ -21,7 +21,7 @@ var providers = []Provider{
 	{
 		Key:          "github-actions",
 		Label:        "GitHub Actions",
-		NameSuffix:   "github-actions",
+		NameSuffix:   "gha",
 		Issuer:       "token.actions.githubusercontent.com",
 		TargetFlag:   "github-repo",
 		TargetLabel:  "GitHub repository (owner/repo)",
@@ -31,7 +31,7 @@ var providers = []Provider{
 	{
 		Key:          "hcp-terraform",
 		Label:        "HCP Terraform",
-		NameSuffix:   "hcp-terraform",
+		NameSuffix:   "tfc",
 		Issuer:       "app.terraform.io",
 		TargetFlag:   "hcp-workspace",
 		TargetLabel:  "HCP Terraform workspace (organization/project/workspace)",

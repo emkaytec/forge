@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/emkaytec/forge/pkg/schema"
 )
 
 func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T) {
@@ -152,7 +154,7 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	rendered, err := os.ReadFile(filepath.Join(tempDir, "forge", "aws-iam-provisioner.yaml"))
+	rendered, err := os.ReadFile(filepath.Join(tempDir, "forge", "aws-iam-provisioner-gha.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
@@ -166,7 +168,7 @@ sso_account_id = 123456789012
 		t.Fatalf("generated manifest did not contain prompted account_id: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "forge-gha-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain expected role name: %q", contents)
 	}
 
@@ -213,18 +215,18 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsNonInteractiveFlags(t *test
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "aws-iam-provisioner.yaml")
+	path := filepath.Join(tempDir, "forge", "aws-iam-provisioner-tfc.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 
 	contents := string(rendered)
-	if !strings.Contains(contents, `name: "forge"`) {
+	if !strings.Contains(contents, `name: "forge-tfc"`) {
 		t.Fatalf("generated manifest did not contain expected metadata name: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "forge-tfc-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain expected role name: %q", contents)
 	}
 
@@ -238,6 +240,44 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsNonInteractiveFlags(t *test
 
 	if !strings.Contains(stdout.String(), path) {
 		t.Fatalf("expected success output to mention %q, got %q", path, stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestGenerateAWSIAMProvisionerNormalizesApplicationNameFromFlag(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{
+		"manifest", "generate", "aws-iam-provisioner",
+		"--application", "  Forge App  ",
+		"--account-id", "123456789012",
+		"--provider", "github-actions",
+		"--github-repo", "emkaytec/forge",
+		"--managed-policy", "arn:aws:iam::aws:policy/ReadOnlyAccess",
+	}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-gha.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	if !strings.Contains(contents, `name: "forge-app-gha"`) {
+		t.Fatalf("generated manifest did not contain normalized metadata name: %q", contents)
+	}
+
+	if !strings.Contains(contents, `name: "forge-app-gha-provisioner-role"`) {
+		t.Fatalf("generated manifest did not contain normalized role name: %q", contents)
 	}
 
 	if stderr.Len() != 0 {
@@ -265,33 +305,33 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsMultipleProviders(t *testin
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-github-actions.yaml")
+	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-gha.yaml")
 	githubRendered, err := os.ReadFile(githubPath)
 	if err != nil {
 		t.Fatalf("ReadFile(github) error = %v", err)
 	}
 
 	githubContents := string(githubRendered)
-	if !strings.Contains(githubContents, `name: "forge-github-actions"`) {
+	if !strings.Contains(githubContents, `name: "forge-gha"`) {
 		t.Fatalf("generated GitHub manifest did not contain suffixed metadata name: %q", githubContents)
 	}
 
-	if !strings.Contains(githubContents, `name: "forge-github-actions-provisioner-role"`) {
+	if !strings.Contains(githubContents, `name: "forge-gha-provisioner-role"`) {
 		t.Fatalf("generated GitHub manifest did not contain suffixed role name: %q", githubContents)
 	}
 
-	hcpPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-hcp-terraform.yaml")
+	hcpPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-tfc.yaml")
 	hcpRendered, err := os.ReadFile(hcpPath)
 	if err != nil {
 		t.Fatalf("ReadFile(hcp) error = %v", err)
 	}
 
 	hcpContents := string(hcpRendered)
-	if !strings.Contains(hcpContents, `name: "forge-hcp-terraform"`) {
+	if !strings.Contains(hcpContents, `name: "forge-tfc"`) {
 		t.Fatalf("generated HCP manifest did not contain suffixed metadata name: %q", hcpContents)
 	}
 
-	if !strings.Contains(hcpContents, `name: "forge-hcp-terraform-provisioner-role"`) {
+	if !strings.Contains(hcpContents, `name: "forge-tfc-provisioner-role"`) {
 		t.Fatalf("generated HCP manifest did not contain suffixed role name: %q", hcpContents)
 	}
 
@@ -328,8 +368,109 @@ func TestRunManifestGenerateHelpDocumentsOptionalNameArgument(t *testing.T) {
 		t.Fatalf("expected non-interactive example usage, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "If multiple provisioning systems are selected") {
-		t.Fatalf("expected multi-provider output note, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "aws-iam-provisioner-gha.yaml") || !strings.Contains(stdout.String(), "aws-iam-provisioner-tfc.yaml") {
+		t.Fatalf("expected provider-specific output note, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestGenerateAWSIAMProvisionerTruncatesRoleNameToAWSLimit(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	longApplication := "this-application-name-is-intentionally-long-enough-to-force-role-name-truncation"
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{
+		"manifest", "generate", "aws-iam-provisioner",
+		"--application", longApplication,
+		"--account-id", "123456789012",
+		"--provider", "github-actions",
+		"--github-repo", "emkaytec/forge",
+		"--managed-policy", "arn:aws:iam::aws:policy/ReadOnlyAccess",
+	}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	path := filepath.Join(tempDir, longApplication, "aws-iam-provisioner-gha.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	manifest, err := schema.DecodeManifest(rendered)
+	if err != nil {
+		t.Fatalf("DecodeManifest() error = %v", err)
+	}
+
+	spec, ok := manifest.Spec.(*schema.AWSIAMProvisionerSpec)
+	if !ok {
+		t.Fatalf("manifest spec type = %T, want *schema.AWSIAMProvisionerSpec", manifest.Spec)
+	}
+
+	if len([]rune(spec.Name)) != schema.AWSIAMRoleNameMaxLength {
+		t.Fatalf("generated role name length = %d, want %d (%q)", len([]rune(spec.Name)), schema.AWSIAMRoleNameMaxLength, spec.Name)
+	}
+
+	if !strings.HasSuffix(spec.Name, "-gha-provisioner-role") {
+		t.Fatalf("generated role name = %q, want gha suffix", spec.Name)
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestManifestGeneratePromptsNormalizeApplicationName(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	configPath := filepath.Join(tempDir, "aws-config")
+	if err := os.WriteFile(configPath, []byte(`
+[profile prod-admin]
+sso_account_id = 123456789012
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	t.Setenv("AWS_CONFIG_FILE", configPath)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(tempDir, "missing-credentials"))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	root := newRootCommand(&stdout, &stderr, "dev")
+	root.SetIn(strings.NewReader(strings.Join([]string{
+		"  Forge App  ",
+		"1",
+		"1",
+		"emkaytec/forge",
+		"arn:aws:iam::aws:policy/ReadOnlyAccess",
+	}, "\n") + "\n"))
+	root.SetArgs([]string{"manifest", "generate", "aws-iam-provisioner"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-gha.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	if !strings.Contains(contents, `name: "forge-app-gha"`) {
+		t.Fatalf("generated manifest did not contain normalized metadata name: %q", contents)
+	}
+
+	if !strings.Contains(contents, `name: "forge-app-gha-provisioner-role"`) {
+		t.Fatalf("generated manifest did not contain normalized role name: %q", contents)
 	}
 
 	if stderr.Len() != 0 {

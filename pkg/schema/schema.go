@@ -1,10 +1,16 @@
 package schema
 
-import "fmt"
+import (
+	"fmt"
+	"unicode/utf8"
+)
 
 const (
 	// APIVersionV1 is the first supported Forge manifest API version.
 	APIVersionV1 = "forge/v1"
+
+	// AWSIAMRoleNameMaxLength matches the AWS IAM role-name maximum length.
+	AWSIAMRoleNameMaxLength = 64
 )
 
 // Kind identifies a supported manifest schema.
@@ -187,6 +193,9 @@ func (s *HCPTFWorkspaceSpec) Validate() error {
 func (s *AWSIAMProvisionerSpec) Validate() error {
 	if s.Name == "" {
 		return invalidField("spec.name", "must not be empty")
+	}
+	if utf8.RuneCountInString(s.Name) > AWSIAMRoleNameMaxLength {
+		return invalidField("spec.name", fmt.Sprintf("must not exceed %d characters", AWSIAMRoleNameMaxLength))
 	}
 
 	if s.AccountID == "" {

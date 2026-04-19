@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/emkaytec/forge/internal/manifest"
 	"github.com/emkaytec/forge/internal/ui"
+	selfupdate "github.com/emkaytec/forge/internal/update"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -38,7 +40,7 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 				return nil
 			}
 
-			renderHelp(cmd.OutOrStdout(), cmd, true)
+			renderHelp(cmd.OutOrStdout(), cmd, true, rootScreenUpdateNotice(cmd.Context(), version))
 			return nil
 		},
 	}
@@ -65,7 +67,7 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 	root.AddCommand(manifest.Command())
 	root.AddCommand(newUpdateCommand(version))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
-		renderHelp(cmd.OutOrStdout(), cmd, false)
+		renderHelp(cmd.OutOrStdout(), cmd, false, "")
 	})
 	root.InitDefaultHelpFlag()
 	root.Flags().BoolVarP(&versionRequested, "version", "v", false, "Print the Forge version")
@@ -84,13 +86,13 @@ func newHelpCommand(root *cobra.Command) *cobra.Command {
 		Short:   "Show this help output",
 		GroupID: bootstrapGroupID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			renderHelp(cmd.OutOrStdout(), root, false)
+			renderHelp(cmd.OutOrStdout(), root, false, "")
 			return nil
 		},
 	}
 }
 
-func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
+func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool, notice string) {
 	if includeBanner {
 		ui.Banner(w, ui.Profile())
 	}
@@ -99,6 +101,10 @@ func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
 	if longDescription := strings.TrimSpace(cmd.Long); longDescription != "" && longDescription != cmd.Short {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, longDescription)
+	}
+	if notice = strings.TrimSpace(notice); notice != "" {
+		fmt.Fprintln(w)
+		ui.Warn(w, notice)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, ui.RenderHeading(w, "Usage"))
@@ -109,6 +115,30 @@ func renderHelp(w io.Writer, cmd *cobra.Command, includeBanner bool) {
 	writeAvailableCommands(w, cmd, colWidth)
 	writeFlags(w, cmd, colWidth)
 	writeExamples(w, cmd)
+}
+
+func rootScreenUpdateNotice(ctx context.Context, version string) string {
+	if !isReleasedVersion(version) {
+		return ""
+	}
+
+	runner := newUpdateRunner(version)
+	result, err := runner.Run(ctx, selfupdate.Options{Check: true})
+	if err != nil || result.UpToDate || strings.TrimSpace(result.TargetVersion) == "" {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"Update available: %s -> %s. Run `forge update` to install it.",
+		displayVersion(result.CurrentVersion),
+		result.TargetVersion,
+	)
+}
+
+func isReleasedVersion(version string) bool {
+	var major, minor, patch int
+	_, err := fmt.Sscanf(strings.TrimSpace(version), "v%d.%d.%d", &major, &minor, &patch)
+	return err == nil
 }
 
 func usageLine(cmd *cobra.Command) string {

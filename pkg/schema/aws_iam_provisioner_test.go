@@ -71,3 +71,26 @@ spec:
 		t.Fatalf("DecodeManifest() error = %v, want assume_role_policy rejection", err)
 	}
 }
+
+func TestAWSIAMProvisionerRejectsRoleNamesLongerThanAWSLimit(t *testing.T) {
+	t.Parallel()
+
+	_, err := schema.DecodeManifest([]byte(`
+apiVersion: forge/v1
+kind: aws-iam-provisioner
+metadata:
+  name: github-actions
+spec:
+  name: this-role-name-is-deliberately-made-long-enough-to-exceed-sixty-four-chars
+  account_id: "123456789012"
+  oidc_provider: token.actions.githubusercontent.com
+  oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
+`))
+	if err == nil {
+		t.Fatal("DecodeManifest() error = nil, want role-name length validation")
+	}
+
+	if !strings.Contains(err.Error(), "spec.name") || !strings.Contains(err.Error(), "64 characters") {
+		t.Fatalf("DecodeManifest() error = %v, want spec.name max-length validation", err)
+	}
+}
