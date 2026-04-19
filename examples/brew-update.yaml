@@ -1,0 +1,19 @@
+# Example launch-agent manifest for keeping Homebrew metadata fresh on a workstation.
+apiVersion: forge/v1
+kind: launch-agent
+metadata:
+  # metadata.name is the stable manifest identifier Forge reports on.
+  name: "brew-update"
+spec:
+  # spec.name is the operator-facing name for this launch agent.
+  name: "brew-update"
+  # label is the launchd identifier and should stay globally unique on the machine.
+  label: "dev.emkaytec.brew-update"
+  # command is the exact shell command launchd should execute.
+  command: "/opt/homebrew/bin/brew update"
+  schedule:
+    # Run once per day using the interval schedule shape.
+    type: interval
+    interval_seconds: 86400
+  # Run once when the agent loads so a fresh machine updates immediately.
+  run_at_load: true
