@@ -9,3 +9,4 @@ These ADRs may be drafted with help from AI coding agents after extended discuss
 ## Index
 
 - [ADR 0001: Workspace and internal package layout](0001-workspace-and-package-layout.md)
+- [ADR 0002: Stage manifest schema in pkg/schema](0002-stage-manifest-schema-in-pkg.md)
