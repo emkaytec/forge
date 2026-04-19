@@ -27,4 +27,4 @@ Each file should include a short comment noting its alloy-candidate status so fu
 
 ## Current contents
 
-`pkg/schema/` now holds Forge's first alloy-candidate manifest envelope, kind constants, and typed schema validation helpers. The package is intentionally narrow and exists so future `manifest` commands can share one reviewable contract before the schema migrates into `alloy`.
+`pkg/schema/` now holds Forge's first alloy-candidate manifest envelope, kind constants, and typed schema validation helpers. The package is intentionally narrow and now backs the shipped `forge manifest generate` and `forge manifest validate` commands while still keeping the eventual migration into `alloy` mechanical.
