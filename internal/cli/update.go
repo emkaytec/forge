@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	selfupdate "github.com/emkaytec/forge/internal/update"
 	"github.com/emkaytec/forge/internal/ui"
+	selfupdate "github.com/emkaytec/forge/internal/update"
 	"github.com/spf13/cobra"
 )
 
@@ -26,8 +26,7 @@ func newUpdateCommand(version string) *cobra.Command {
 		Short:   "Check for and install released Forge binaries",
 		GroupID: bootstrapGroupID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runner := newUpdateRunner(version)
-			result, err := runner.Run(cmd.Context(), selfupdate.Options{
+			result, err := runUpdateCheck(cmd.Context(), version, selfupdate.Options{
 				Check:   checkOnly,
 				Version: requestedVersion,
 			})
@@ -65,4 +64,9 @@ func displayVersion(version string) string {
 	}
 
 	return version
+}
+
+func runUpdateCheck(ctx context.Context, version string, opts selfupdate.Options) (selfupdate.Result, error) {
+	runner := newUpdateRunner(version)
+	return runner.Run(ctx, opts)
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/emkaytec/forge/internal/ui"
+	selfupdate "github.com/emkaytec/forge/internal/update"
 )
 
 func TestRunWithNoArgsWritesHelp(t *testing.T) {
@@ -29,6 +30,67 @@ func TestRunWithNoArgsWritesHelp(t *testing.T) {
 	}
 }
 
+func TestRunWithNoArgsShowsAvailableUpdateOnTitleScreen(t *testing.T) {
+	previous := newUpdateRunner
+	newUpdateRunner = func(version string) updateRunner {
+		return fakeUpdateRunner{
+			result: selfupdate.Result{
+				CurrentVersion: version,
+				TargetVersion:  "v1.2.4",
+			},
+		}
+	}
+	defer func() {
+		newUpdateRunner = previous
+	}()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(nil, &stdout, &stderr, "v1.2.3"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "Update available: v1.2.3 -> v1.2.4. Run `forge update` to install it.") {
+		t.Fatalf("expected title-screen update notice, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithNoArgsSkipsUpdateNoticeWhenUpToDate(t *testing.T) {
+	previous := newUpdateRunner
+	newUpdateRunner = func(version string) updateRunner {
+		return fakeUpdateRunner{
+			result: selfupdate.Result{
+				CurrentVersion: version,
+				TargetVersion:  version,
+				UpToDate:       true,
+			},
+		}
+	}
+	defer func() {
+		newUpdateRunner = previous
+	}()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(nil, &stdout, &stderr, "v1.2.3"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if strings.Contains(stdout.String(), "Update available:") {
+		t.Fatalf("did not expect title-screen update notice, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
 func TestRunWithExplicitHelpOmitsBanner(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -43,6 +105,33 @@ func TestRunWithExplicitHelpOmitsBanner(t *testing.T) {
 
 	if !strings.Contains(stdout.String(), "Bootstrap") || !strings.Contains(stdout.String(), "help") {
 		t.Fatalf("stdout did not contain help text: %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithExplicitHelpDoesNotCheckForUpdates(t *testing.T) {
+	previous := newUpdateRunner
+	called := false
+	newUpdateRunner = func(string) updateRunner {
+		called = true
+		return fakeUpdateRunner{}
+	}
+	defer func() {
+		newUpdateRunner = previous
+	}()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"--help"}, &stdout, &stderr, "v1.2.3"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if called {
+		t.Fatal("expected explicit help to skip update checks")
 	}
 
 	if stderr.Len() != 0 {

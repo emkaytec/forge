@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/emkaytec/forge/internal/aws/accounts"
 	"github.com/emkaytec/forge/internal/aws/oidc"
@@ -163,9 +165,9 @@ If the required inputs are not provided as flags, Forge prompts for:
   4. the repository or workspace identities used in the OIDC subjects
   5. the managed policy ARNs to attach
 
-By default, Forge writes the manifest to <application>/aws-iam-provisioner.yaml.
-If multiple provisioning systems are selected, Forge writes one manifest per
-system under the application directory.`),
+Forge writes provider-specific manifests such as
+<application>/aws-iam-provisioner-gha.yaml and
+<application>/aws-iam-provisioner-tfc.yaml under the application directory.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate aws-iam-provisioner forge",
 			"  forge manifest generate aws-iam-provisioner --application forge --account-id 123456789012 --provider github-actions --github-repo emkaytec/forge --managed-policy arn:aws:iam::aws:policy/ReadOnlyAccess",
@@ -457,23 +459,69 @@ func configureAWSIAMProvisionerFlow(p *promptSession) {
 }
 
 func resolveApplicationName(p *promptSession, args []string, flagValue string) (string, error) {
-	flagValue = strings.TrimSpace(flagValue)
+	normalizedFlag, err := normalizeApplicationName(flagValue)
+	if err != nil && strings.TrimSpace(flagValue) != "" {
+		return "", err
+	}
+
 	if len(args) > 0 {
-		argValue := strings.TrimSpace(args[0])
-		if flagValue != "" && flagValue != argValue {
-			return "", fmt.Errorf("application name %q does not match --application %q", argValue, flagValue)
+		normalizedArg, err := normalizeApplicationName(args[0])
+		if err != nil {
+			return "", err
 		}
-		if argValue == "" {
-			return "", fmt.Errorf("application name must not be empty")
+		if normalizedFlag != "" && normalizedFlag != normalizedArg {
+			return "", fmt.Errorf("application name %q does not match --application %q", normalizedArg, normalizedFlag)
 		}
-		return argValue, nil
+		return normalizedArg, nil
 	}
 
-	if flagValue != "" {
-		return flagValue, nil
+	if normalizedFlag != "" {
+		return normalizedFlag, nil
 	}
 
-	return inputPrompt(p, "Application name", "", true)
+	rawValue, err := inputPrompt(p, "Application name", "", true)
+	if err != nil {
+		return "", err
+	}
+
+	return normalizeApplicationName(rawValue)
+}
+
+func normalizeApplicationName(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("application name must not be empty")
+	}
+
+	var builder strings.Builder
+	previousWasSeparator := false
+	previousWasLowerOrDigit := false
+
+	for _, r := range value {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			isUpper := unicode.IsUpper(r)
+			if isUpper && previousWasLowerOrDigit && builder.Len() > 0 && !previousWasSeparator {
+				builder.WriteByte('-')
+			}
+			builder.WriteRune(unicode.ToLower(r))
+			previousWasSeparator = false
+			previousWasLowerOrDigit = unicode.IsLower(r) || unicode.IsDigit(r)
+		default:
+			if builder.Len() > 0 && !previousWasSeparator {
+				builder.WriteByte('-')
+				previousWasSeparator = true
+			}
+			previousWasLowerOrDigit = false
+		}
+	}
+
+	normalized := strings.Trim(builder.String(), "-")
+	if normalized == "" {
+		return "", fmt.Errorf("application name must contain letters or digits")
+	}
+
+	return normalized, nil
 }
 
 func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (string, error) {
@@ -614,7 +662,6 @@ func resolveProviderTarget(p *promptSession, provider oidc.Provider, githubRepo,
 }
 
 func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accountID string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
-	multiProvider := len(providers) > 1
 	for _, provider := range providers {
 		target, ok := targets[provider.Key]
 		if !ok {
@@ -626,14 +673,12 @@ func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accoun
 			return err
 		}
 
-		manifestName := applicationName
-		roleName := applicationName + "-provisioner-role"
-		resourceName := "aws-iam-provisioner"
-		if multiProvider {
-			manifestName = applicationName + "-" + provider.NameSuffix
-			roleName = applicationName + "-" + provider.NameSuffix + "-provisioner-role"
-			resourceName = resourceName + "-" + provider.NameSuffix
+		manifestName := applicationName + "-" + provider.NameSuffix
+		roleName, err := buildAWSIAMProvisionerRoleName(applicationName, provider.NameSuffix)
+		if err != nil {
+			return err
 		}
+		resourceName := "aws-iam-provisioner-" + provider.NameSuffix
 
 		contents := renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
 			ApplicationName: manifestName,
@@ -650,6 +695,28 @@ func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accoun
 	}
 
 	return nil
+}
+
+func buildAWSIAMProvisionerRoleName(applicationName, providerSuffix string) (string, error) {
+	roleSuffix := "-" + providerSuffix + "-provisioner-role"
+	maxApplicationLength := schema.AWSIAMRoleNameMaxLength - utf8.RuneCountInString(roleSuffix)
+	if maxApplicationLength <= 0 {
+		return "", fmt.Errorf("provider suffix %q leaves no room for the application name", providerSuffix)
+	}
+
+	return truncateRunes(applicationName, maxApplicationLength) + roleSuffix, nil
+}
+
+func truncateRunes(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(value) <= maxRunes {
+		return value
+	}
+
+	runes := []rune(value)
+	return string(runes[:maxRunes])
 }
 
 func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, error) {

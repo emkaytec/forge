@@ -16,7 +16,7 @@ func Run(args []string, stdout, stderr io.Writer, version string) error {
 
 	fmt.Fprintln(stderr, err)
 	fmt.Fprintln(stderr)
-	renderHelp(stderr, root, false)
+	renderHelp(stderr, root, false, "")
 
 	return err
 }
