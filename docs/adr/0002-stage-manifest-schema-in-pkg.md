@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-04-19
-- **Related**: OpenSpec change `define-manifest-schema-types`, Forge [ADR 0001](0001-workspace-and-package-layout.md), anvil ADR-0004, anvil ADR-0005
+- **Related**: Forge [ADR 0001](0001-workspace-and-package-layout.md), anvil ADR-0004, anvil ADR-0005
 
 ## Context
 

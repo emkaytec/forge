@@ -20,7 +20,6 @@ forge/
 ├── pkg/                 # reserved: staging area for alloy-bound shared types (empty today)
 ├── docs/
 │   └── adr/             # architecture decision records
-├── openspec/            # OpenSpec specs, proposals, and archived changes
 ├── go.work              # Go workspace (single module today; expandable for future carve-outs)
 ├── go.mod
 ├── ARCHITECTURE.md      # this file
@@ -99,7 +98,7 @@ Until a domain's first implementation ticket lands, its directory contains only 
 2. Replace the domain's `README.md` with Go source files the first time real code lands. The `doc.go` file should carry the package comment; additional files contain the command, its subcommands, and any domain-local helpers.
 3. Expose the `Command() *cobra.Command` constructor and a `GroupID` constant as described above.
 4. Wire the domain into `internal/cli/root.go` by adding a cobra group and calling `root.AddCommand(<domain>.Command())`.
-5. Update the relevant OpenSpec specs to describe the new command's behavior.
+5. Update the durable repository docs that define or constrain the command's behavior. In practice that usually means `README.md`, `ARCHITECTURE.md`, and an ADR when the change introduces a meaningful architectural decision or trade-off.
 
 ## Future module carve-outs
 
