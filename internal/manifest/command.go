@@ -9,7 +9,7 @@ const GroupID = "manifest"
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "manifest",
-		Short:   "Generate and validate Forge manifests",
+		Short:   "Generate and inspect Forge manifests",
 		GroupID: GroupID,
 	}
 
