@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-04-18
-- **Related**: [MK-4](https://linear.app/wiscotrashpanda/issue/MK-4/set-up-go-workspace-and-internal-package-structure), OpenSpec change `scaffold-workspace-layout`
+- **Related**: [MK-4](https://linear.app/wiscotrashpanda/issue/MK-4/set-up-go-workspace-and-internal-package-structure)
 
 ## Context
 
