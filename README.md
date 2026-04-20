@@ -101,6 +101,22 @@ Generated manifests write `<name>.yaml` into the current directory by default. P
 
 The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
 
+## Reconciliation
+
+Forge reconciles manifests against their execution target:
+
+- `forge reconcile local <path>` — applies workstation-local kinds (currently `LaunchAgent`) against the machine.
+- `forge reconcile remote <path>` — applies cloud-capable kinds (`GitHubRepository`, `HCPTerraformWorkspace`, `AWSIAMProvisioner`) against their backends.
+
+Both commands share discovery, validation, and planning. `<path>` may be a single manifest file or a directory of `.yaml` / `.yml` manifests; each command filters to the kinds compatible with its target and reports the rest as skipped.
+
+Flags:
+
+- `--dry-run` prints the plan without mutating live state.
+- `--strict` exits non-zero when the plan contains skipped manifests (mixed trees that include kinds not compatible with the requested target).
+
+Remote-kind handlers are stub seams today and return a "not implemented" error on apply; real delegation to the cloud runtime lands with the `anvil` carve-out.
+
 ## CI/CD
 
 Forge publishes CLI artifacts through GitHub Actions workflows under `.github/workflows/`.
