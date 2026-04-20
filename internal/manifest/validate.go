@@ -66,7 +66,7 @@ func describeValidationError(err error) string {
 
 	var kindErr *schema.UnsupportedKindError
 	if errors.As(err, &kindErr) {
-		return fmt.Sprintf("%s; supported kinds are github-repo, hcp-tf-workspace, aws-iam-provisioner, and launch-agent", kindErr.Error())
+		return fmt.Sprintf("%s; supported kinds are GitHubRepository, HCPTerraformWorkspace, AWSIAMProvisioner, and LaunchAgent", kindErr.Error())
 	}
 
 	if strings.Contains(err.Error(), "field ") {

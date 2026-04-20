@@ -13,7 +13,7 @@ func TestHCPTFWorkspaceRoundTripAndValidation(t *testing.T) {
 
 	manifest, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: hcp-tf-workspace
+kind: HCPTerraformWorkspace
 metadata:
   name: core-platform
 spec:
@@ -53,7 +53,7 @@ func TestHCPTFWorkspaceRejectsInvalidExecutionMode(t *testing.T) {
 
 	_, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: hcp-tf-workspace
+kind: HCPTerraformWorkspace
 metadata:
   name: core-platform
 spec:

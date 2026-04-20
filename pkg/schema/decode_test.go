@@ -19,7 +19,7 @@ func TestDecodeManifestSupportedKinds(t *testing.T) {
 			name: "github repo applies default branch",
 			data: `
 apiVersion: forge/v1
-kind: github-repo
+kind: GitHubRepository
 metadata:
   name: sample-repo
 spec:
@@ -47,7 +47,7 @@ spec:
 			name: "hcp workspace decodes typed spec",
 			data: `
 apiVersion: forge/v1
-kind: hcp-tf-workspace
+kind: HCPTerraformWorkspace
 metadata:
   name: shared-workspace
 spec:
@@ -67,7 +67,7 @@ spec:
 			name: "aws provisioner decodes typed spec",
 			data: `
 apiVersion: forge/v1
-kind: aws-iam-provisioner
+kind: AWSIAMProvisioner
 metadata:
   name: github-actions
 spec:
@@ -88,7 +88,7 @@ spec:
 			name: "launch agent applies run-at-load default",
 			data: `
 apiVersion: forge/v1
-kind: launch-agent
+kind: LaunchAgent
 metadata:
   name: workstation-sync
 spec:
@@ -134,7 +134,7 @@ func TestDecodeManifestUnsupportedVersion(t *testing.T) {
 
 	_, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v2
-kind: github-repo
+kind: GitHubRepository
 metadata:
   name: sample-repo
 spec:
