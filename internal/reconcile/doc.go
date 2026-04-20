@@ -8,7 +8,7 @@
 // swap executors underneath. Forge owns the operator CLI and target
 // selection. Remote reconciliation is a shell around the cloud
 // runtime boundary that will later live in anvil; local
-// reconciliation hosts workstation-only handlers (launch-agent first)
+// reconciliation hosts workstation-only handlers (LaunchAgent first)
 // because those do not have a home in anvil.
 //
 // # Idempotency guarantees
@@ -32,7 +32,7 @@
 // disagrees with the desired spec. Each target handler decides what
 // drift means for its Kind:
 //
-//   - launch-agent: the live plist at
+//   - LaunchAgent: the live plist at
 //     $HOME/Library/LaunchAgents/<label>.plist is decoded and compared
 //     field-by-field with the desired LaunchAgentSpec. Unknown live
 //     fields are ignored (the staged schema is deliberately narrow).

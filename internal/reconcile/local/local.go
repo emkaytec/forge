@@ -24,7 +24,7 @@ type Executor struct {
 }
 
 // NewExecutor returns a local executor wired with the built-in
-// launch-agent handler. No init side effects.
+// LaunchAgent handler. No init side effects.
 func NewExecutor() (*Executor, error) {
 	la, err := launchagent.New()
 	if err != nil {

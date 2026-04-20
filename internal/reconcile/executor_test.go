@@ -50,7 +50,7 @@ func (f *fakeExecutor) Apply(_ context.Context, plan *reconcile.Plan, opts recon
 
 const (
 	githubRepoManifest = `apiVersion: forge/v1
-kind: github-repo
+kind: GitHubRepository
 metadata:
   name: sample
 spec:
@@ -58,7 +58,7 @@ spec:
   visibility: private
 `
 	launchAgentManifest = `apiVersion: forge/v1
-kind: launch-agent
+kind: LaunchAgent
 metadata:
   name: brew-update
 spec:
@@ -70,7 +70,7 @@ spec:
     interval_seconds: 3600
 `
 	invalidManifest = `apiVersion: forge/v1
-kind: github-repo
+kind: GitHubRepository
 metadata:
   name: broken
 spec:
@@ -97,11 +97,11 @@ func TestPlanFiltersByTarget_Local(t *testing.T) {
 	}
 
 	if len(plan.Changes) != 1 || plan.Changes[0].Kind() != schema.KindLaunchAgent {
-		t.Fatalf("local plan changes: want [launch-agent], got %v", kinds(plan.Changes))
+		t.Fatalf("local plan changes: want [LaunchAgent], got %v", kinds(plan.Changes))
 	}
 
 	if len(plan.Skipped) != 1 || plan.Skipped[0].Kind() != schema.KindGitHubRepo {
-		t.Fatalf("local plan skipped: want [github-repo], got %v", kinds(plan.Skipped))
+		t.Fatalf("local plan skipped: want [GitHubRepository], got %v", kinds(plan.Skipped))
 	}
 
 	if plan.Skipped[0].SkipReason == "" {
@@ -121,11 +121,11 @@ func TestPlanFiltersByTarget_Remote(t *testing.T) {
 	}
 
 	if len(plan.Changes) != 1 || plan.Changes[0].Kind() != schema.KindGitHubRepo {
-		t.Fatalf("remote plan changes: want [github-repo], got %v", kinds(plan.Changes))
+		t.Fatalf("remote plan changes: want [GitHubRepository], got %v", kinds(plan.Changes))
 	}
 
 	if len(plan.Skipped) != 1 || plan.Skipped[0].Kind() != schema.KindLaunchAgent {
-		t.Fatalf("remote plan skipped: want [launch-agent], got %v", kinds(plan.Skipped))
+		t.Fatalf("remote plan skipped: want [LaunchAgent], got %v", kinds(plan.Skipped))
 	}
 }
 

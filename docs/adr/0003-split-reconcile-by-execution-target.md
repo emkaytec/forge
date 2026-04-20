@@ -6,7 +6,7 @@
 
 ## Context
 
-Forge now owns manifest authoring for both cloud-oriented and workstation-oriented resources. The first staged kinds already span both categories: `github-repo`, `hcp-tf-workspace`, `aws-iam-provisioner`, and `launch-agent`.
+Forge now owns manifest authoring for both cloud-oriented and workstation-oriented resources. The first staged kinds already span both categories: `GitHubRepository`, `HCPTerraformWorkspace`, `AWSIAMProvisioner`, and `LaunchAgent`.
 
 Those resources do not share one execution environment. Cloud-facing resources can be reconciled in remote automation such as GitHub Actions. Workstation resources such as launch agents must be reconciled on the local machine that will actually run them.
 
@@ -59,7 +59,7 @@ That means `forge reconcile remote` is a shell around the remote reconciliation 
 
 ### 5. Do not add placement metadata when kind semantics already answer the question
 
-The first routing rule should come from manifest kind compatibility. A `launch-agent` manifest is local-only because the resource itself is machine-local. A GitHub repository manifest is remote-capable because its API-facing runtime can run in automation.
+The first routing rule should come from manifest kind compatibility. A `LaunchAgent` manifest is local-only because the resource itself is machine-local. A `GitHubRepository` manifest is remote-capable because its API-facing runtime can run in automation.
 
 Forge should not add extra placement metadata merely to restate what the kind already implies. Additional execution metadata is only justified when one resource kind can genuinely run in more than one meaningful execution mode and operators need to choose between them.
 

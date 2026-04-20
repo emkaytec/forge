@@ -13,7 +13,7 @@ func TestLaunchAgentRoundTripCalendarSchedule(t *testing.T) {
 
 	manifest, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: launch-agent
+kind: LaunchAgent
 metadata:
   name: nightly-sync
 spec:
@@ -55,7 +55,7 @@ func TestLaunchAgentRejectsIncompleteSchedule(t *testing.T) {
 
 	_, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: launch-agent
+kind: LaunchAgent
 metadata:
   name: nightly-sync
 spec:
@@ -79,7 +79,7 @@ func TestLaunchAgentRejectsUnsupportedExtraField(t *testing.T) {
 
 	_, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: launch-agent
+kind: LaunchAgent
 metadata:
   name: nightly-sync
 spec:

@@ -14,7 +14,7 @@ func TestRunManifestValidateAcceptsSingleManifestFile(t *testing.T) {
 	path := filepath.Join(tempDir, "brew-update.yaml")
 	if err := os.WriteFile(path, []byte(`
 apiVersion: forge/v1
-kind: launch-agent
+kind: LaunchAgent
 metadata:
   name: brew-update
 spec:
@@ -54,7 +54,7 @@ func TestRunManifestValidateAcceptsManifestDirectory(t *testing.T) {
 	files := map[string]string{
 		"github.yaml": `
 apiVersion: forge/v1
-kind: github-repo
+kind: GitHubRepository
 metadata:
   name: sample-repo
 spec:
@@ -63,7 +63,7 @@ spec:
 `,
 		"workspace.yml": `
 apiVersion: forge/v1
-kind: hcp-tf-workspace
+kind: HCPTerraformWorkspace
 metadata:
   name: platform
 spec:
@@ -106,7 +106,7 @@ func TestRunManifestValidateReportsActionableErrors(t *testing.T) {
 	path := filepath.Join(tempDir, "broken.yaml")
 	if err := os.WriteFile(path, []byte(`
 apiVersion: forge/v1
-kind: aws-iam-provisioner
+kind: AWSIAMProvisioner
 metadata:
   name: github-actions
 spec:
