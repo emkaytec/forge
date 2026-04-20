@@ -1,5 +1,5 @@
 // Package launchagent implements the local reconcile handler for
-// the launch-agent kind. It renders LaunchAgentSpec manifests into
+// the LaunchAgent kind. It renders LaunchAgentSpec manifests into
 // launchd plist XML, compares them to the live file at
 // $HOME/Library/LaunchAgents/<label>.plist, and reloads the agent
 // via launchctl on apply.
@@ -18,7 +18,7 @@ import (
 	"github.com/emkaytec/forge/pkg/schema"
 )
 
-// Handler implements the launch-agent local handler contract.
+// Handler implements the LaunchAgent local handler contract.
 type Handler struct {
 	// baseDir is the directory that holds <label>.plist files.
 	// Defaults to $HOME/Library/LaunchAgents. Tests override.

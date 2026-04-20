@@ -10,7 +10,7 @@ import (
 	"github.com/emkaytec/forge/pkg/schema"
 )
 
-// livePlist captures the subset of plist fields the launch-agent
+// livePlist captures the subset of plist fields the LaunchAgent
 // handler cares about. Fields outside this shape are ignored per
 // ADR-like guidance that unknown live-state fields do not drive
 // drift (MK-7 keeps the schema deliberately narrow).

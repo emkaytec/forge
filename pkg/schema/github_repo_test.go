@@ -13,7 +13,7 @@ func TestGitHubRepoRoundTripAndValidation(t *testing.T) {
 
 	manifest, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: github-repo
+kind: GitHubRepository
 metadata:
   name: portfolio-repo
 spec:
@@ -63,7 +63,7 @@ func TestGitHubRepoRejectsInvalidVisibility(t *testing.T) {
 
 	_, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: github-repo
+kind: GitHubRepository
 metadata:
   name: portfolio-repo
 spec:

@@ -30,16 +30,16 @@ Unknown fields are rejected during YAML decoding instead of being silently toler
 
 The initial kinds are:
 
-- `github-repo`
-- `hcp-tf-workspace`
-- `aws-iam-provisioner`
-- `launch-agent`
+- `GitHubRepository`
+- `HCPTerraformWorkspace`
+- `AWSIAMProvisioner`
+- `LaunchAgent`
 
 Each kind intentionally exposes only a small field set. That keeps the contract reviewable, aligns with Forge's "scope intentionally" guidance, and preserves additive expansion later when a real operator workflow proves the need.
 
 This mirrors the repo-family direction already captured in anvil ADR-0005: manage the core surface first and expand deliberately rather than chasing parity up front.
 
-### 4. Keep `aws-iam-provisioner` limited to OIDC-backed provisioner roles
+### 4. Keep `AWSIAMProvisioner` limited to OIDC-backed provisioner roles
 
 The AWS IAM schema is not a general IAM role model. It covers only the fields needed to describe OIDC-backed provisioner roles: role naming, target account, OIDC provider identity, subject matching, and attached managed policies.
 
