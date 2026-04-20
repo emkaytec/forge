@@ -287,6 +287,19 @@ func TestRunWithHelpListsManifestGroup(t *testing.T) {
 	}
 }
 
+func TestRunWithHelpListsReconcileGroup(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"--help"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "Reconcile\n  reconcile") {
+		t.Fatalf("expected reconcile group contents in help output, got %q", stdout.String())
+	}
+}
+
 func TestRunWithManifestShowsGenerateSubcommand(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
