@@ -43,7 +43,7 @@ If a new file could plausibly live in either directory, choose `internal/` until
 
 ## Command domains
 
-Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest compose`, `forge manifest generate`, and `forge manifest validate`. The `reconcile` domain hosts the shared planning layer and per-target executors behind `forge reconcile local|remote`; the operator-facing command shell is added by [MK-10](https://linear.app/wiscotrashpanda/issue/MK-10/implement-forge-reconcile-local-and-remote-commands). The remaining reserved domains today are `workstation`, `initcmd`, and `local`.
+Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest compose`, `forge manifest generate`, and `forge manifest validate`. The `reconcile` domain hosts the shared planning layer and per-target executors; the operator-facing `forge reconcile local|remote` shell lives in the sibling `reconcilecmd` package (separated to break an import cycle — the local/remote executor subpackages already import `reconcile`). The remaining reserved domains today are `workstation`, `initcmd`, and `local`.
 
 ### Registration pattern
 

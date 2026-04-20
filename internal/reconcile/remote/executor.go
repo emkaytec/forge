@@ -17,8 +17,8 @@ type Executor struct {
 }
 
 // NewExecutor returns a remote executor wired with the built-in stub
-// handlers. No init side effects — callers (MK-10) construct this
-// explicitly during CLI assembly.
+// handlers. No init side effects — the CLI shell in reconcilecmd
+// constructs this explicitly during command wiring.
 func NewExecutor() *Executor {
 	return newExecutor(
 		githubrepo.New(),
