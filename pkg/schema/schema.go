@@ -17,10 +17,10 @@ const (
 type Kind string
 
 const (
-	KindGitHubRepo        Kind = "github-repo"
-	KindHCPTFWorkspace    Kind = "hcp-tf-workspace"
-	KindAWSIAMProvisioner Kind = "aws-iam-provisioner"
-	KindLaunchAgent       Kind = "launch-agent"
+	KindGitHubRepo        Kind = "GitHubRepository"
+	KindHCPTFWorkspace    Kind = "HCPTerraformWorkspace"
+	KindAWSIAMProvisioner Kind = "AWSIAMProvisioner"
+	KindLaunchAgent       Kind = "LaunchAgent"
 )
 
 // Metadata contains the stable manifest envelope metadata.
@@ -65,7 +65,7 @@ type AWSIAMProvisionerSpec struct {
 	ManagedPolicies []string `yaml:"managed_policies,omitempty"`
 }
 
-// LaunchAgentSpec is the initial launch-agent schema staged in Forge.
+// LaunchAgentSpec is the initial LaunchAgent schema staged in Forge.
 type LaunchAgentSpec struct {
 	Name      string              `yaml:"name"`
 	Label     string              `yaml:"label"`
@@ -74,7 +74,7 @@ type LaunchAgentSpec struct {
 	RunAtLoad bool                `yaml:"run_at_load,omitempty"`
 }
 
-// LaunchAgentScheduleType identifies the supported launch-agent schedule shapes.
+// LaunchAgentScheduleType identifies the supported LaunchAgent schedule shapes.
 type LaunchAgentScheduleType string
 
 const (
@@ -213,7 +213,7 @@ func (s *AWSIAMProvisionerSpec) Validate() error {
 	return nil
 }
 
-// Validate reports whether the launch-agent schema is valid.
+// Validate reports whether the LaunchAgent schema is valid.
 func (s *LaunchAgentSpec) Validate() error {
 	if s.Name == "" {
 		return invalidField("spec.name", "must not be empty")
@@ -234,7 +234,7 @@ func (s *LaunchAgentSpec) applyDefaults() {
 	s.RunAtLoad = s.RunAtLoad || false
 }
 
-// Validate reports whether the launch-agent schedule is valid.
+// Validate reports whether the LaunchAgent schedule is valid.
 func (s LaunchAgentSchedule) Validate() error {
 	switch s.Type {
 	case ScheduleTypeInterval:

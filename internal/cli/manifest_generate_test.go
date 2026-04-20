@@ -27,7 +27,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 			},
 			path: filepath.Join("sample-repo", "github-repo.yaml"),
 			snippets: []string{
-				"kind: github-repo",
+				"kind: GitHubRepository",
 				"# visibility must be either public or private.",
 				`name: "sample-repo"`,
 				"visibility: private",
@@ -47,7 +47,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 			},
 			path: filepath.Join("sample-repo", "hcp-tf-workspace.yaml"),
 			snippets: []string{
-				"kind: hcp-tf-workspace",
+				"kind: HCPTerraformWorkspace",
 				"# execution_mode must be remote, local, or agent.",
 				`name: "sample-repo"`,
 				`organization: "emkaytec"`,
@@ -66,7 +66,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 			},
 			path: filepath.Join("sample-repo", "launch-agent.yaml"),
 			snippets: []string{
-				"kind: launch-agent",
+				"kind: LaunchAgent",
 				"# type must be interval or calendar.",
 				`name: "sample-repo"`,
 				`label: "dev.emkaytec.sample-repo"`,
@@ -352,7 +352,7 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 
 	contents := string(rendered)
 	for _, snippet := range []string{
-		"kind: github-repo",
+		"kind: GitHubRepository",
 		`name: "forge"`,
 		"visibility: private",
 		`description: "Forge CLI repo"`,
@@ -408,7 +408,7 @@ func TestManifestGeneratePromptsForHCPTFWorkspaceFieldsWhenNameOmitted(t *testin
 
 	contents := string(rendered)
 	for _, snippet := range []string{
-		"kind: hcp-tf-workspace",
+		"kind: HCPTerraformWorkspace",
 		`name: "forge"`,
 		`organization: "emkaytec"`,
 		`project: "platform"`,
@@ -463,7 +463,7 @@ func TestManifestGeneratePromptsForLaunchAgentFieldsWhenNameOmitted(t *testing.T
 
 	contents := string(rendered)
 	for _, snippet := range []string{
-		"kind: launch-agent",
+		"kind: LaunchAgent",
 		`name: "brew-update"`,
 		`label: "dev.emkaytec.brew-update"`,
 		`command: "/opt/homebrew/bin/brew update"`,
@@ -527,8 +527,8 @@ sso_account_id = 123456789012
 	}
 
 	contents := string(rendered)
-	if !strings.Contains(contents, `kind: aws-iam-provisioner`) {
-		t.Fatalf("generated manifest did not contain aws-iam-provisioner kind: %q", contents)
+	if !strings.Contains(contents, `kind: AWSIAMProvisioner`) {
+		t.Fatalf("generated manifest did not contain AWSIAMProvisioner kind: %q", contents)
 	}
 
 	if !strings.Contains(contents, `account_id: "123456789012"`) {

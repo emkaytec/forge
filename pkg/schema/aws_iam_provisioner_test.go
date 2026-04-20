@@ -13,7 +13,7 @@ func TestAWSIAMProvisionerRoundTrip(t *testing.T) {
 
 	manifest, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: aws-iam-provisioner
+kind: AWSIAMProvisioner
 metadata:
   name: github-actions
 spec:
@@ -53,7 +53,7 @@ func TestAWSIAMProvisionerRejectsUnsupportedExtraField(t *testing.T) {
 
 	_, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: aws-iam-provisioner
+kind: AWSIAMProvisioner
 metadata:
   name: github-actions
 spec:
@@ -77,7 +77,7 @@ func TestAWSIAMProvisionerRejectsRoleNamesLongerThanAWSLimit(t *testing.T) {
 
 	_, err := schema.DecodeManifest([]byte(`
 apiVersion: forge/v1
-kind: aws-iam-provisioner
+kind: AWSIAMProvisioner
 metadata:
   name: github-actions
 spec:

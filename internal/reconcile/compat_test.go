@@ -47,7 +47,7 @@ func TestKindsForTarget(t *testing.T) {
 
 	local := reconcile.KindsForTarget(reconcile.TargetLocal)
 	if len(local) != 1 || local[0] != schema.KindLaunchAgent {
-		t.Fatalf("local kinds: want [launch-agent], got %v", local)
+		t.Fatalf("local kinds: want [LaunchAgent], got %v", local)
 	}
 }
 
