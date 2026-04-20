@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/emkaytec/forge/internal/manifest"
+	"github.com/emkaytec/forge/internal/reconcilecmd"
 	"github.com/emkaytec/forge/internal/ui"
 	selfupdate "github.com/emkaytec/forge/internal/update"
 	"github.com/spf13/cobra"
@@ -57,8 +58,13 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 		ID:    manifest.GroupID,
 		Title: "Manifest Commands",
 	})
+	root.AddGroup(&cobra.Group{
+		ID:    reconcilecmd.GroupID,
+		Title: "Reconcile Commands",
+	})
 	root.AddCommand(newHelpCommand(root))
 	root.AddCommand(manifest.Command())
+	root.AddCommand(reconcilecmd.Command())
 	root.AddCommand(newUpdateCommand(version))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		renderHelp(cmd.OutOrStdout(), cmd, false, "")
