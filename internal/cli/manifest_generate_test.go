@@ -13,23 +13,65 @@ import (
 func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T) {
 	tests := []struct {
 		name     string
-		resource string
+		args     []string
+		path     string
 		snippets []string
 	}{
 		{
-			name:     "github repo",
-			resource: "github-repo",
-			snippets: []string{"kind: github-repo", "# visibility must be either public or private.", `name: "sample-repo"`},
+			name: "github repo",
+			args: []string{
+				"manifest", "generate", "github-repo", "sample-repo",
+				"--visibility", "private",
+				"--default-branch", "main",
+				"--branch-protection",
+			},
+			path: filepath.Join("sample-repo", "github-repo.yaml"),
+			snippets: []string{
+				"kind: github-repo",
+				"# visibility must be either public or private.",
+				`name: "sample-repo"`,
+				"visibility: private",
+				"default_branch: main",
+				"branch_protection: true",
+			},
 		},
 		{
-			name:     "hcp workspace",
-			resource: "hcp-tf-workspace",
-			snippets: []string{"kind: hcp-tf-workspace", "# execution_mode must be remote, local, or agent.", `organization: "example-org"`},
+			name: "hcp workspace",
+			args: []string{
+				"manifest", "generate", "hcp-tf-workspace", "sample-repo",
+				"--organization", "emkaytec",
+				"--project", "platform",
+				"--vcs-repo", "emkaytec/sample-repo",
+				"--execution-mode", "remote",
+				"--terraform-version", "1.9.8",
+			},
+			path: filepath.Join("sample-repo", "hcp-tf-workspace.yaml"),
+			snippets: []string{
+				"kind: hcp-tf-workspace",
+				"# execution_mode must be remote, local, or agent.",
+				`name: "sample-repo"`,
+				`organization: "emkaytec"`,
+				`vcs_repo: "emkaytec/sample-repo"`,
+				"execution_mode: remote",
+			},
 		},
 		{
-			name:     "launch agent",
-			resource: "launch-agent",
-			snippets: []string{"kind: launch-agent", "# type must be interval or calendar.", "interval_seconds: 86400"},
+			name: "launch agent",
+			args: []string{
+				"manifest", "generate", "launch-agent", "sample-repo",
+				"--command", "/opt/homebrew/bin/brew update",
+				"--schedule", "interval",
+				"--interval-seconds", "86400",
+				"--run-at-load",
+			},
+			path: filepath.Join("sample-repo", "launch-agent.yaml"),
+			snippets: []string{
+				"kind: launch-agent",
+				"# type must be interval or calendar.",
+				`name: "sample-repo"`,
+				`label: "dev.emkaytec.sample-repo"`,
+				"interval_seconds: 86400",
+			},
 		},
 	}
 
@@ -42,11 +84,11 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 
-			if err := Run([]string{"manifest", "generate", tt.resource, "sample-repo"}, &stdout, &stderr, "dev"); err != nil {
+			if err := Run(tt.args, &stdout, &stderr, "dev"); err != nil {
 				t.Fatalf("Run returned error: %v", err)
 			}
 
-			rendered, err := os.ReadFile(filepath.Join(tempDir, "sample-repo.yaml"))
+			rendered, err := os.ReadFile(filepath.Join(tempDir, tt.path))
 			if err != nil {
 				t.Fatalf("ReadFile() error = %v", err)
 			}
@@ -57,7 +99,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				}
 			}
 
-			if !strings.Contains(stdout.String(), "Wrote "+tt.resource+" manifest") {
+			if !strings.Contains(stdout.String(), "Wrote ") {
 				t.Fatalf("expected success output, got %q", stdout.String())
 			}
 
@@ -75,11 +117,18 @@ func TestRunManifestGenerateWritesStarterManifestInRelativeDirectory(t *testing.
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	if err := Run([]string{"manifest", "generate", "launch-agent", "brew-update", "--dir", "manifests/examples"}, &stdout, &stderr, "dev"); err != nil {
+	if err := Run([]string{
+		"manifest", "generate", "launch-agent", "brew-update",
+		"--command", "/opt/homebrew/bin/brew update",
+		"--schedule", "interval",
+		"--interval-seconds", "86400",
+		"--run-at-load",
+		"--dir", "manifests/examples",
+	}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "manifests", "examples", "brew-update.yaml")
+	path := filepath.Join(tempDir, "manifests", "examples", "brew-update", "launch-agent.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -115,6 +164,324 @@ func TestRunManifestGenerateRejectsAbsoluteDirectory(t *testing.T) {
 
 	if stdout.Len() != 0 {
 		t.Fatalf("expected no stdout output, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestGenerateGitHubRepoSupportsNonInteractiveFlags(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{
+		"manifest", "generate", "github-repo",
+		"--application", "forge",
+		"--visibility", "private",
+		"--description", "Forge CLI repo",
+		"--topic", "platform",
+		"--topic", "automation",
+		"--default-branch", "main",
+		"--branch-protection=false",
+	}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	for _, snippet := range []string{
+		`name: "forge"`,
+		"visibility: private",
+		`description: "Forge CLI repo"`,
+		`- "platform"`,
+		`- "automation"`,
+		"default_branch: main",
+		"branch_protection: false",
+	} {
+		if !strings.Contains(contents, snippet) {
+			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
+		}
+	}
+
+	if _, err := schema.DecodeManifest(rendered); err != nil {
+		t.Fatalf("DecodeManifest() error = %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), path) {
+		t.Fatalf("expected success output to mention %q, got %q", path, stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestGenerateHCPTFWorkspaceSupportsNonInteractiveFlags(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{
+		"manifest", "generate", "hcp-tf-workspace",
+		"--application", "forge",
+		"--organization", "emkaytec",
+		"--project", "platform",
+		"--vcs-repo", "emkaytec/forge",
+		"--execution-mode", "remote",
+		"--terraform-version", "1.9.8",
+	}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	for _, snippet := range []string{
+		`name: "forge"`,
+		`organization: "emkaytec"`,
+		`project: "platform"`,
+		`vcs_repo: "emkaytec/forge"`,
+		"execution_mode: remote",
+		`terraform_version: "1.9.8"`,
+	} {
+		if !strings.Contains(contents, snippet) {
+			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
+		}
+	}
+
+	if _, err := schema.DecodeManifest(rendered); err != nil {
+		t.Fatalf("DecodeManifest() error = %v", err)
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestGenerateLaunchAgentSupportsCalendarSchedule(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{
+		"manifest", "generate", "launch-agent",
+		"--application", "nightly-report",
+		"--command", "/usr/local/bin/report.sh",
+		"--schedule", "calendar",
+		"--hour", "2",
+		"--minute", "15",
+		"--run-at-load=false",
+	}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	path := filepath.Join(tempDir, "nightly-report", "launch-agent.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	for _, snippet := range []string{
+		`name: "nightly-report"`,
+		`label: "dev.emkaytec.nightly-report"`,
+		`command: "/usr/local/bin/report.sh"`,
+		"type: calendar",
+		"hour: 2",
+		"minute: 15",
+		"run_at_load: false",
+	} {
+		if !strings.Contains(contents, snippet) {
+			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
+		}
+	}
+
+	if _, err := schema.DecodeManifest(rendered); err != nil {
+		t.Fatalf("DecodeManifest() error = %v", err)
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	root := newRootCommand(&stdout, &stderr, "dev")
+	root.SetIn(strings.NewReader(strings.Join([]string{
+		"forge",           // application name
+		"1",               // visibility: Private (index 1)
+		"Forge CLI repo",  // description
+		"platform",        // topics
+		"",                // default branch (accept default "main")
+		"1",               // enable branch protection: Yes (index 1)
+	}, "\n") + "\n"))
+	root.SetArgs([]string{"manifest", "generate", "github-repo"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	for _, snippet := range []string{
+		"kind: github-repo",
+		`name: "forge"`,
+		"visibility: private",
+		`description: "Forge CLI repo"`,
+		`- "platform"`,
+		"default_branch: main",
+		"branch_protection: true",
+	} {
+		if !strings.Contains(contents, snippet) {
+			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
+		}
+	}
+
+	if !strings.Contains(stdout.String(), "Application name:") {
+		t.Fatalf("expected application name prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Visibility:") {
+		t.Fatalf("expected visibility selector, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestManifestGeneratePromptsForHCPTFWorkspaceFieldsWhenNameOmitted(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	root := newRootCommand(&stdout, &stderr, "dev")
+	root.SetIn(strings.NewReader(strings.Join([]string{
+		"forge",             // application name
+		"emkaytec",          // organization (required)
+		"platform",          // project
+		"emkaytec/forge",    // vcs repo
+		"1",                 // execution mode: Remote (index 1)
+		"1.9.8",             // terraform version
+	}, "\n") + "\n"))
+	root.SetArgs([]string{"manifest", "generate", "hcp-tf-workspace"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	for _, snippet := range []string{
+		"kind: hcp-tf-workspace",
+		`name: "forge"`,
+		`organization: "emkaytec"`,
+		`project: "platform"`,
+		`vcs_repo: "emkaytec/forge"`,
+		"execution_mode: remote",
+		`terraform_version: "1.9.8"`,
+	} {
+		if !strings.Contains(contents, snippet) {
+			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
+		}
+	}
+
+	if !strings.Contains(stdout.String(), "Application name:") {
+		t.Fatalf("expected application name prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Execution mode:") {
+		t.Fatalf("expected execution mode selector, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestManifestGeneratePromptsForLaunchAgentFieldsWhenNameOmitted(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	root := newRootCommand(&stdout, &stderr, "dev")
+	root.SetIn(strings.NewReader(strings.Join([]string{
+		"brew-update",                       // application name
+		"/opt/homebrew/bin/brew update",     // command (required)
+		"1",                                 // schedule type: Interval (index 1)
+		"86400",                             // interval seconds
+		"1",                                 // run at load: Yes (index 1)
+	}, "\n") + "\n"))
+	root.SetArgs([]string{"manifest", "generate", "launch-agent"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	path := filepath.Join(tempDir, "brew-update", "launch-agent.yaml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	for _, snippet := range []string{
+		"kind: launch-agent",
+		`name: "brew-update"`,
+		`label: "dev.emkaytec.brew-update"`,
+		`command: "/opt/homebrew/bin/brew update"`,
+		"type: interval",
+		"interval_seconds: 86400",
+		"run_at_load: true",
+	} {
+		if !strings.Contains(contents, snippet) {
+			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
+		}
+	}
+
+	if !strings.Contains(stdout.String(), "Application name:") {
+		t.Fatalf("expected application name prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Schedule type:") {
+		t.Fatalf("expected schedule type selector, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
