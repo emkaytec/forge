@@ -20,16 +20,24 @@ import (
 
 var defaultManagedPolicies = []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"}
 
-type manifestTemplate struct {
-	resource     string
-	filename     string
-	render       func(name string) string
-	promptRender func(cmd *cobra.Command) (string, string, error)
-}
+const (
+	defaultGitHubVisibility        = "private"
+	defaultGitHubDefaultBranch     = "main"
+	defaultGitHubBranchProtection  = true
+	defaultHCPTFOrganization       = "emkaytec"
+	defaultHCPTFProject            = "platform"
+	defaultHCPTFExecutionMode      = "remote"
+	defaultHCPTFTerraformVersion   = "1.9.8"
+	defaultLaunchAgentScheduleKind = "interval"
+	defaultLaunchAgentInterval     = 86400
+	defaultLaunchAgentHour         = 9
+	defaultLaunchAgentMinute       = 30
+	defaultLaunchAgentRunAtLoad    = true
+	launchAgentLabelPrefix         = "dev.emkaytec."
+)
 
 type gitHubRepoTemplateData struct {
-	ManifestName     string
-	RepoName         string
+	ApplicationName  string
 	Visibility       string
 	Description      string
 	Topics           []string
@@ -38,8 +46,7 @@ type gitHubRepoTemplateData struct {
 }
 
 type hcpTFWorkspaceTemplateData struct {
-	ManifestName     string
-	WorkspaceName    string
+	ApplicationName  string
 	Organization     string
 	Project          string
 	VCSRepo          string
@@ -57,8 +64,7 @@ type awsIAMProvisionerTemplateData struct {
 }
 
 type launchAgentTemplateData struct {
-	ManifestName    string
-	AgentName       string
+	ApplicationName string
 	Label           string
 	Command         string
 	ScheduleType    string
@@ -79,64 +85,209 @@ func newGenerateCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		newGenerateTemplateCommand(manifestTemplate{
-			resource:     "github-repo",
-			filename:     "github-repo",
-			render:       renderGitHubRepoTemplate,
-			promptRender: promptGitHubRepoTemplate,
-		}),
-		newGenerateTemplateCommand(manifestTemplate{
-			resource:     "hcp-tf-workspace",
-			filename:     "hcp-tf-workspace",
-			render:       renderHCPTFWorkspaceTemplate,
-			promptRender: promptHCPTFWorkspaceTemplate,
-		}),
+		newGenerateGitHubRepoCommand(),
+		newGenerateHCPTFWorkspaceCommand(),
 		newGenerateAWSIAMProvisionerCommand(),
-		newGenerateTemplateCommand(manifestTemplate{
-			resource:     "launch-agent",
-			filename:     "launch-agent",
-			render:       renderLaunchAgentTemplate,
-			promptRender: promptLaunchAgentTemplate,
-		}),
+		newGenerateLaunchAgentCommand(),
 	)
 
 	return cmd
 }
 
-func newGenerateTemplateCommand(template manifestTemplate) *cobra.Command {
-	var outputDir string
+func newGenerateGitHubRepoCommand() *cobra.Command {
+	var (
+		outputDir        string
+		application      string
+		visibility       string
+		description      string
+		topics           []string
+		defaultBranch    string
+		branchProtection bool
+	)
 
 	cmd := &cobra.Command{
-		Use:     template.resource + " [name]",
-		Short:   fmt.Sprintf("Write a starter %s manifest", template.resource),
-		Long:    "Write a starter manifest. If [name] is omitted, Forge prompts for the schema fields interactively.",
-		Example: fmt.Sprintf("  forge manifest generate %s example\n  forge manifest generate %s", template.resource, template.resource),
-		Args:    cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var (
-				name     string
-				contents string
-				err      error
-			)
+		Use:   "github-repo [application]",
+		Short: "Write a starter github-repo manifest",
+		Long: strings.TrimSpace(`Write a starter github-repo manifest.
 
-			if len(args) == 0 {
-				name, contents, err = template.promptRender(cmd)
-			} else {
-				name = strings.TrimSpace(args[0])
-				if name == "" {
-					return fmt.Errorf("manifest name must not be empty")
-				}
-				contents = template.render(name)
+If the required inputs are not provided as flags, Forge prompts for:
+  1. the application name
+  2. the repository visibility (public or private)
+  3. an optional description and topic list
+  4. the default branch and branch-protection choice
+
+Forge writes the manifest to <application>/github-repo.yaml under the application directory.`),
+		Example: strings.Join([]string{
+			"  forge manifest generate github-repo forge",
+			"  forge manifest generate github-repo --application forge --visibility private --default-branch main",
+			"  forge manifest generate github-repo --application forge --topic platform --topic automation --branch-protection=false",
+		}, "\n"),
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateOutputDir(outputDir); err != nil {
+				return err
 			}
+
+			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
+			configureGitHubRepoFlow(p)
+
+			applicationName, err := resolveApplicationName(p, args, application)
 			if err != nil {
 				return err
 			}
 
-			return writeGeneratedManifest(cmd, name, template.filename, outputDir, contents, defaultOutputPath)
+			visibilityValue, err := resolveSelect(p, "Visibility", visibility, []selectOption{
+				{Label: "Private", Value: "private"},
+				{Label: "Public", Value: "public"},
+			}, 0)
+			if err != nil {
+				return err
+			}
+
+			descriptionValue, err := resolveOptionalText(p, "Description", description, "")
+			if err != nil {
+				return err
+			}
+
+			topicsValue, err := resolveCSV(p, "Topics (comma-separated)", topics, nil)
+			if err != nil {
+				return err
+			}
+
+			defaultBranchValue, err := resolveOptionalText(p, "Default branch", defaultBranch, defaultGitHubDefaultBranch)
+			if err != nil {
+				return err
+			}
+
+			branchProtectionValue, err := resolveYesNo(p, "Enable branch protection",
+				cmd.Flags().Changed("branch-protection"), branchProtection, defaultGitHubBranchProtection)
+			if err != nil {
+				return err
+			}
+
+			if p.preludeDone {
+				fmt.Fprintln(p.out)
+			}
+
+			data := gitHubRepoTemplateData{
+				ApplicationName:  applicationName,
+				Visibility:       visibilityValue,
+				Description:      descriptionValue,
+				Topics:           topicsValue,
+				DefaultBranch:    defaultBranchValue,
+				BranchProtection: branchProtectionValue,
+			}
+
+			return writeGeneratedManifest(cmd, applicationName, "github-repo", outputDir, renderGitHubRepoTemplateWithData(data))
 		},
 	}
 
-	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest into this relative directory")
+	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
+	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the output directory")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "Repository visibility: public or private")
+	cmd.Flags().StringVar(&description, "description", "", "Repository description (optional)")
+	cmd.Flags().StringSliceVar(&topics, "topic", nil, "GitHub topic slug to attach (repeat or comma-separate)")
+	cmd.Flags().StringVar(&defaultBranch, "default-branch", "", "Default branch name")
+	cmd.Flags().BoolVar(&branchProtection, "branch-protection", defaultGitHubBranchProtection, "Enable branch protection on the default branch")
+
+	return cmd
+}
+
+func newGenerateHCPTFWorkspaceCommand() *cobra.Command {
+	var (
+		outputDir        string
+		application      string
+		organization     string
+		project          string
+		vcsRepo          string
+		executionMode    string
+		terraformVersion string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "hcp-tf-workspace [application]",
+		Short: "Write a starter hcp-tf-workspace manifest",
+		Long: strings.TrimSpace(`Write a starter hcp-tf-workspace manifest.
+
+If the required inputs are not provided as flags, Forge prompts for:
+  1. the application name
+  2. the HCP Terraform organization and optional project
+  3. an optional VCS repo binding
+  4. the execution mode and Terraform version
+
+Forge writes the manifest to <application>/hcp-tf-workspace.yaml under the application directory.`),
+		Example: strings.Join([]string{
+			"  forge manifest generate hcp-tf-workspace forge",
+			"  forge manifest generate hcp-tf-workspace --application forge --organization emkaytec --project platform",
+			"  forge manifest generate hcp-tf-workspace --application forge --organization emkaytec --vcs-repo emkaytec/forge --execution-mode remote",
+		}, "\n"),
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateOutputDir(outputDir); err != nil {
+				return err
+			}
+
+			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
+			configureHCPTFWorkspaceFlow(p)
+
+			applicationName, err := resolveApplicationName(p, args, application)
+			if err != nil {
+				return err
+			}
+
+			organizationValue, err := resolveRequiredText(p, "Organization", organization, defaultHCPTFOrganization)
+			if err != nil {
+				return err
+			}
+
+			projectValue, err := resolveOptionalText(p, "Project", project, defaultHCPTFProject)
+			if err != nil {
+				return err
+			}
+
+			vcsRepoValue, err := resolveOptionalText(p, "VCS repo (owner/repo)", vcsRepo, defaultVCSRepoFor(applicationName))
+			if err != nil {
+				return err
+			}
+
+			executionModeValue, err := resolveSelect(p, "Execution mode", executionMode, []selectOption{
+				{Label: "Remote", Value: "remote"},
+				{Label: "Local", Value: "local"},
+				{Label: "Agent", Value: "agent"},
+			}, 0)
+			if err != nil {
+				return err
+			}
+
+			terraformVersionValue, err := resolveOptionalText(p, "Terraform version", terraformVersion, defaultHCPTFTerraformVersion)
+			if err != nil {
+				return err
+			}
+
+			if p.preludeDone {
+				fmt.Fprintln(p.out)
+			}
+
+			data := hcpTFWorkspaceTemplateData{
+				ApplicationName:  applicationName,
+				Organization:     organizationValue,
+				Project:          projectValue,
+				VCSRepo:          vcsRepoValue,
+				ExecutionMode:    executionModeValue,
+				TerraformVersion: terraformVersionValue,
+			}
+
+			return writeGeneratedManifest(cmd, applicationName, "hcp-tf-workspace", outputDir, renderHCPTFWorkspaceTemplateWithData(data))
+		},
+	}
+
+	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
+	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the output directory")
+	cmd.Flags().StringVar(&organization, "organization", "", "HCP Terraform organization slug")
+	cmd.Flags().StringVar(&project, "project", "", "HCP Terraform project name")
+	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected VCS repository path, e.g. emkaytec/forge")
+	cmd.Flags().StringVar(&executionMode, "execution-mode", "", "Execution mode: remote, local, or agent")
+	cmd.Flags().StringVar(&terraformVersion, "terraform-version", "", "Pinned Terraform version for the workspace")
 
 	return cmd
 }
@@ -176,6 +327,10 @@ Forge writes provider-specific manifests such as
 		}, "\n"),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateOutputDir(outputDir); err != nil {
+				return err
+			}
+
 			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			configureAWSIAMProvisionerFlow(p)
 
@@ -224,14 +379,121 @@ Forge writes provider-specific manifests such as
 	return cmd
 }
 
-type outputPathResolver func(manifestName, resource, dir string) (string, error)
+func newGenerateLaunchAgentCommand() *cobra.Command {
+	var (
+		outputDir       string
+		application     string
+		command         string
+		schedule        string
+		intervalSeconds int
+		hour            int
+		minute          int
+		runAtLoad       bool
+	)
 
-func writeGeneratedManifest(cmd *cobra.Command, manifestName, resource, outputDir, contents string, resolve outputPathResolver) error {
+	cmd := &cobra.Command{
+		Use:   "launch-agent [application]",
+		Short: "Write a starter launch-agent manifest",
+		Long: strings.TrimSpace(`Write a starter launch-agent manifest.
+
+If the required inputs are not provided as flags, Forge prompts for:
+  1. the application name (drives metadata.name and the launchd label)
+  2. the command launchd should execute
+  3. the schedule type and its parameters
+  4. whether the agent should also run at load
+
+Forge writes the manifest to <application>/launch-agent.yaml under the application directory.`),
+		Example: strings.Join([]string{
+			"  forge manifest generate launch-agent brew-update --command \"/opt/homebrew/bin/brew update\"",
+			"  forge manifest generate launch-agent --application brew-update --command \"/opt/homebrew/bin/brew update\" --schedule interval --interval-seconds 86400",
+			"  forge manifest generate launch-agent --application nightly-report --command \"/usr/local/bin/report.sh\" --schedule calendar --hour 2 --minute 15",
+		}, "\n"),
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateOutputDir(outputDir); err != nil {
+				return err
+			}
+
+			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
+			configureLaunchAgentFlow(p)
+
+			applicationName, err := resolveApplicationName(p, args, application)
+			if err != nil {
+				return err
+			}
+
+			commandValue, err := resolveRequiredText(p, "Command", command, "")
+			if err != nil {
+				return err
+			}
+
+			scheduleValue, err := resolveSelect(p, "Schedule type", schedule, []selectOption{
+				{Label: "Interval", Value: "interval"},
+				{Label: "Calendar", Value: "calendar"},
+			}, 0)
+			if err != nil {
+				return err
+			}
+
+			data := launchAgentTemplateData{
+				ApplicationName: applicationName,
+				Label:           launchAgentLabelPrefix + applicationName,
+				Command:         commandValue,
+				ScheduleType:    scheduleValue,
+			}
+
+			switch scheduleValue {
+			case "interval":
+				data.IntervalSeconds, err = resolveInteger(p, "Interval seconds",
+					cmd.Flags().Changed("interval-seconds"), intervalSeconds, defaultLaunchAgentInterval)
+				if err != nil {
+					return err
+				}
+			case "calendar":
+				data.Hour, err = resolveInteger(p, "Hour (0–23)",
+					cmd.Flags().Changed("hour"), hour, defaultLaunchAgentHour)
+				if err != nil {
+					return err
+				}
+				data.Minute, err = resolveInteger(p, "Minute (0–59)",
+					cmd.Flags().Changed("minute"), minute, defaultLaunchAgentMinute)
+				if err != nil {
+					return err
+				}
+			}
+
+			data.RunAtLoad, err = resolveYesNo(p, "Run at load",
+				cmd.Flags().Changed("run-at-load"), runAtLoad, defaultLaunchAgentRunAtLoad)
+			if err != nil {
+				return err
+			}
+
+			if p.preludeDone {
+				fmt.Fprintln(p.out)
+			}
+
+			return writeGeneratedManifest(cmd, applicationName, "launch-agent", outputDir, renderLaunchAgentTemplateWithData(data))
+		},
+	}
+
+	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
+	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the launchd label")
+	cmd.Flags().StringVar(&command, "command", "", "Command line launchd should execute")
+	cmd.Flags().StringVar(&schedule, "schedule", "", "Schedule type: interval or calendar")
+	cmd.Flags().IntVar(&intervalSeconds, "interval-seconds", 0, "Seconds between runs for interval schedules")
+	cmd.Flags().IntVar(&hour, "hour", 0, "Hour (0–23) for calendar schedules")
+	cmd.Flags().IntVar(&minute, "minute", 0, "Minute (0–59) for calendar schedules")
+	cmd.Flags().BoolVar(&runAtLoad, "run-at-load", defaultLaunchAgentRunAtLoad, "Also run the agent when launchd loads it")
+
+	return cmd
+}
+
+func writeGeneratedManifest(cmd *cobra.Command, applicationName, resource, outputDir, contents string) error {
 	if err := validateGeneratedManifest(contents); err != nil {
 		return err
 	}
 
-	path, err := resolve(manifestName, resource, outputDir)
+	path, err := applicationDirectoryOutputPath(applicationName, resource, outputDir)
 	if err != nil {
 		return err
 	}
@@ -256,15 +518,6 @@ func validateGeneratedManifest(contents string) error {
 	return nil
 }
 
-func defaultOutputPath(name, _resource, dir string) (string, error) {
-	baseDir, err := resolveBaseOutputDir(dir)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(baseDir, name+".yaml"), nil
-}
-
 func applicationDirectoryOutputPath(name, resource, dir string) (string, error) {
 	baseDir, err := resolveBaseOutputDir(dir)
 	if err != nil {
@@ -272,6 +525,13 @@ func applicationDirectoryOutputPath(name, resource, dir string) (string, error) 
 	}
 
 	return filepath.Join(baseDir, name, resource+".yaml"), nil
+}
+
+func validateOutputDir(dir string) error {
+	if filepath.IsAbs(dir) {
+		return fmt.Errorf("output directory must be relative, got %q", dir)
+	}
+	return nil
 }
 
 func resolveBaseOutputDir(dir string) (string, error) {
@@ -320,101 +580,26 @@ func (p *promptSession) runPrelude() {
 
 func (p *promptSession) required(label, defaultValue string) (string, error) {
 	for {
-		value, err := p.line(label, defaultValue)
+		value, eof, err := p.line(label, defaultValue)
 		if err != nil {
 			return "", err
 		}
 		if value != "" {
 			return value, nil
 		}
+		if eof {
+			return "", fmt.Errorf("prompt canceled before %s was provided", strings.ToLower(label))
+		}
 		fmt.Fprintln(p.out, "Value is required.")
 	}
 }
 
 func (p *promptSession) optional(label, defaultValue string) (string, error) {
-	return p.line(label, defaultValue)
+	value, _, err := p.line(label, defaultValue)
+	return value, err
 }
 
-func (p *promptSession) choice(label string, options []string, defaultValue string) (string, error) {
-	for {
-		prompt := fmt.Sprintf("%s (%s)", label, strings.Join(options, "/"))
-		value, err := p.line(prompt, defaultValue)
-		if err != nil {
-			return "", err
-		}
-		for _, option := range options {
-			if value == option {
-				return value, nil
-			}
-		}
-		fmt.Fprintf(p.out, "Choose one of: %s\n", strings.Join(options, ", "))
-	}
-}
-
-func (p *promptSession) bool(label string, defaultValue bool) (bool, error) {
-	defaultText := "no"
-	if defaultValue {
-		defaultText = "yes"
-	}
-
-	for {
-		value, err := p.line(label+" (yes/no)", defaultText)
-		if err != nil {
-			return false, err
-		}
-		switch strings.ToLower(value) {
-		case "y", "yes", "true":
-			return true, nil
-		case "n", "no", "false":
-			return false, nil
-		default:
-			fmt.Fprintln(p.out, "Enter yes or no.")
-		}
-	}
-}
-
-func (p *promptSession) integer(label string, defaultValue int) (int, error) {
-	for {
-		value, err := p.line(label, strconv.Itoa(defaultValue))
-		if err != nil {
-			return 0, err
-		}
-		number, err := strconv.Atoi(value)
-		if err == nil {
-			return number, nil
-		}
-		fmt.Fprintln(p.out, "Enter a whole number.")
-	}
-}
-
-func (p *promptSession) csv(label string, defaultValues []string) ([]string, error) {
-	defaultText := strings.Join(defaultValues, ",")
-	value, err := p.line(label, defaultText)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(value) == "" {
-		return nil, nil
-	}
-
-	parts := strings.Split(value, ",")
-	values := make([]string, 0, len(parts))
-	seen := map[string]struct{}{}
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		values = append(values, trimmed)
-	}
-	return values, nil
-}
-
-func (p *promptSession) line(label, defaultValue string) (string, error) {
+func (p *promptSession) line(label, defaultValue string) (string, bool, error) {
 	if defaultValue != "" {
 		fmt.Fprintf(p.out, "%s [%s]: ", label, defaultValue)
 	} else {
@@ -422,21 +607,64 @@ func (p *promptSession) line(label, defaultValue string) (string, error) {
 	}
 
 	line, err := p.reader.ReadString('\n')
+	trimmed := strings.TrimSpace(line)
 	if err != nil {
 		if err == io.EOF {
-			if strings.TrimSpace(line) != "" {
-				return strings.TrimSpace(line), nil
+			if trimmed != "" {
+				return trimmed, true, nil
 			}
-			return "", fmt.Errorf("prompt canceled before %s was provided", strings.ToLower(label))
+			return defaultValue, true, nil
 		}
-		return "", err
+		return "", false, err
 	}
 
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return defaultValue, nil
+	if trimmed == "" {
+		return defaultValue, false, nil
 	}
-	return line, nil
+	return trimmed, false, nil
+}
+
+func configureFlow(p *promptSession, title string, labels []string) {
+	p.labelWidth = ui.ChipLabelWidth(labels...)
+	p.prelude = func(w io.Writer) {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, ui.RenderSectionHeader(title))
+		fmt.Fprintln(w)
+	}
+}
+
+func configureGitHubRepoFlow(p *promptSession) {
+	configureFlow(p, "Generate github-repo", []string{
+		"Application name",
+		"Visibility",
+		"Description",
+		"Topics (comma-separated)",
+		"Default branch",
+		"Enable branch protection",
+	})
+}
+
+func configureHCPTFWorkspaceFlow(p *promptSession) {
+	configureFlow(p, "Generate hcp-tf-workspace", []string{
+		"Application name",
+		"Organization",
+		"Project",
+		"VCS repo (owner/repo)",
+		"Execution mode",
+		"Terraform version",
+	})
+}
+
+func configureLaunchAgentFlow(p *promptSession) {
+	configureFlow(p, "Generate launch-agent", []string{
+		"Application name",
+		"Command",
+		"Schedule type",
+		"Interval seconds",
+		"Hour (0–23)",
+		"Minute (0–59)",
+		"Run at load",
+	})
 }
 
 func configureAWSIAMProvisionerFlow(p *promptSession) {
@@ -450,12 +678,7 @@ func configureAWSIAMProvisionerFlow(p *promptSession) {
 	for _, provider := range oidc.Providers() {
 		labels = append(labels, provider.TargetLabel)
 	}
-	p.labelWidth = ui.ChipLabelWidth(labels...)
-	p.prelude = func(w io.Writer) {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, ui.RenderSectionHeader("Generate aws-iam-provisioner"))
-		fmt.Fprintln(w)
-	}
+	configureFlow(p, "Generate aws-iam-provisioner", labels)
 }
 
 func resolveApplicationName(p *promptSession, args []string, flagValue string) (string, error) {
@@ -522,6 +745,119 @@ func normalizeApplicationName(value string) (string, error) {
 	}
 
 	return normalized, nil
+}
+
+func resolveRequiredText(p *promptSession, label, flagValue, defaultValue string) (string, error) {
+	flagValue = strings.TrimSpace(flagValue)
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	return inputPrompt(p, label, defaultValue, true)
+}
+
+func resolveOptionalText(p *promptSession, label, flagValue, defaultValue string) (string, error) {
+	flagValue = strings.TrimSpace(flagValue)
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	return inputPrompt(p, label, defaultValue, false)
+}
+
+func resolveSelect(p *promptSession, label, flagValue string, options []selectOption, defaultIndex int) (string, error) {
+	flagValue = strings.TrimSpace(flagValue)
+	if flagValue != "" {
+		for _, opt := range options {
+			if opt.Value == flagValue {
+				return flagValue, nil
+			}
+		}
+		allowed := make([]string, 0, len(options))
+		for _, opt := range options {
+			allowed = append(allowed, opt.Value)
+		}
+		return "", fmt.Errorf("invalid value %q for %s; allowed: %s", flagValue, label, strings.Join(allowed, ", "))
+	}
+	selected, err := selectOnePrompt(p, label, options, defaultIndex)
+	if err != nil {
+		return "", err
+	}
+	return selected.Value, nil
+}
+
+func resolveYesNo(p *promptSession, label string, flagChanged, flagValue, defaultValue bool) (bool, error) {
+	if flagChanged {
+		return flagValue, nil
+	}
+	defaultIndex := 1
+	if defaultValue {
+		defaultIndex = 0
+	}
+	selected, err := selectOnePrompt(p, label, []selectOption{
+		{Label: "Yes", Value: "yes"},
+		{Label: "No", Value: "no"},
+	}, defaultIndex)
+	if err != nil {
+		return false, err
+	}
+	return selected.Value == "yes", nil
+}
+
+func resolveCSV(p *promptSession, label string, flagValues, defaultValues []string) ([]string, error) {
+	if len(flagValues) > 0 {
+		return normalizeStringList(flagValues), nil
+	}
+	defaultText := strings.Join(defaultValues, ",")
+	raw, err := inputPrompt(p, label, defaultText, false)
+	if err != nil {
+		return nil, err
+	}
+	return parseCSVValues(raw), nil
+}
+
+func resolveInteger(p *promptSession, label string, flagChanged bool, flagValue, defaultValue int) (int, error) {
+	if flagChanged {
+		return flagValue, nil
+	}
+	for {
+		raw, err := inputPrompt(p, label, strconv.Itoa(defaultValue), true)
+		if err != nil {
+			return 0, err
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err == nil {
+			return n, nil
+		}
+		fmt.Fprintln(p.out, "Enter a whole number.")
+	}
+}
+
+func normalizeStringList(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, v := range values {
+		t := strings.TrimSpace(v)
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		result = append(result, t)
+	}
+	return result
+}
+
+func parseCSVValues(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+
+	return normalizeStringList(strings.Split(raw, ","))
+}
+
+func defaultVCSRepoFor(applicationName string) string {
+	return "emkaytec/" + applicationName
 }
 
 func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (string, error) {
@@ -689,7 +1025,7 @@ func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accoun
 			ManagedPolicies: policies,
 		})
 
-		if err := writeGeneratedManifest(cmd, applicationName, resourceName, outputDir, contents, applicationDirectoryOutputPath); err != nil {
+		if err := writeGeneratedManifest(cmd, applicationName, resourceName, outputDir, contents); err != nil {
 			return err
 		}
 	}
@@ -721,20 +1057,7 @@ func truncateRunes(value string, maxRunes int) string {
 
 func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, error) {
 	if len(flagValues) > 0 {
-		values := make([]string, 0, len(flagValues))
-		seen := map[string]struct{}{}
-		for _, value := range flagValues {
-			trimmed := strings.TrimSpace(value)
-			if trimmed == "" {
-				continue
-			}
-			if _, ok := seen[trimmed]; ok {
-				continue
-			}
-			seen[trimmed] = struct{}{}
-			values = append(values, trimmed)
-		}
-		return values, nil
+		return normalizeStringList(flagValues), nil
 	}
 
 	defaultText := strings.Join(defaultManagedPolicies, ",")
@@ -743,189 +1066,6 @@ func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, er
 		return nil, err
 	}
 	return parseCSVValues(raw), nil
-}
-
-func parseCSVValues(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-
-	parts := strings.Split(raw, ",")
-	values := make([]string, 0, len(parts))
-	seen := map[string]struct{}{}
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		values = append(values, trimmed)
-	}
-	return values
-}
-
-func promptGitHubRepoTemplate(cmd *cobra.Command) (string, string, error) {
-	p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
-
-	manifestName, err := p.required("Manifest name", "")
-	if err != nil {
-		return "", "", err
-	}
-	repoName, err := p.required("Repository name", manifestName)
-	if err != nil {
-		return "", "", err
-	}
-	visibility, err := p.choice("Visibility", []string{"public", "private"}, "public")
-	if err != nil {
-		return "", "", err
-	}
-	description, err := p.optional("Description", "Repository created by Forge")
-	if err != nil {
-		return "", "", err
-	}
-	topics, err := p.csv("Topics (comma-separated)", []string{"platform", "automation"})
-	if err != nil {
-		return "", "", err
-	}
-	defaultBranch, err := p.optional("Default branch", "main")
-	if err != nil {
-		return "", "", err
-	}
-	branchProtection, err := p.bool("Enable branch protection", true)
-	if err != nil {
-		return "", "", err
-	}
-
-	data := gitHubRepoTemplateData{
-		ManifestName:     manifestName,
-		RepoName:         repoName,
-		Visibility:       visibility,
-		Description:      description,
-		Topics:           topics,
-		DefaultBranch:    defaultBranch,
-		BranchProtection: branchProtection,
-	}
-	return manifestName, renderGitHubRepoTemplateWithData(data), nil
-}
-
-func promptHCPTFWorkspaceTemplate(cmd *cobra.Command) (string, string, error) {
-	p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
-
-	manifestName, err := p.required("Manifest name", "")
-	if err != nil {
-		return "", "", err
-	}
-	workspaceName, err := p.required("Workspace name", manifestName)
-	if err != nil {
-		return "", "", err
-	}
-	organization, err := p.required("Organization", "example-org")
-	if err != nil {
-		return "", "", err
-	}
-	project, err := p.optional("Project", "platform")
-	if err != nil {
-		return "", "", err
-	}
-	vcsRepo, err := p.optional("VCS repo", "emkaytec/forge")
-	if err != nil {
-		return "", "", err
-	}
-	executionMode, err := p.choice("Execution mode", []string{"remote", "local", "agent"}, "remote")
-	if err != nil {
-		return "", "", err
-	}
-	terraformVersion, err := p.optional("Terraform version", "1.9.8")
-	if err != nil {
-		return "", "", err
-	}
-
-	data := hcpTFWorkspaceTemplateData{
-		ManifestName:     manifestName,
-		WorkspaceName:    workspaceName,
-		Organization:     organization,
-		Project:          project,
-		VCSRepo:          vcsRepo,
-		ExecutionMode:    executionMode,
-		TerraformVersion: terraformVersion,
-	}
-	return manifestName, renderHCPTFWorkspaceTemplateWithData(data), nil
-}
-
-func promptLaunchAgentTemplate(cmd *cobra.Command) (string, string, error) {
-	p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
-
-	manifestName, err := p.required("Manifest name", "")
-	if err != nil {
-		return "", "", err
-	}
-	agentName, err := p.required("Launch agent name", manifestName)
-	if err != nil {
-		return "", "", err
-	}
-	label, err := p.required("Launchd label", "dev.emkaytec."+manifestName)
-	if err != nil {
-		return "", "", err
-	}
-	command, err := p.required("Command", "/opt/homebrew/bin/brew update")
-	if err != nil {
-		return "", "", err
-	}
-	scheduleType, err := p.choice("Schedule type", []string{"interval", "calendar"}, "interval")
-	if err != nil {
-		return "", "", err
-	}
-
-	data := launchAgentTemplateData{
-		ManifestName: manifestName,
-		AgentName:    agentName,
-		Label:        label,
-		Command:      command,
-		ScheduleType: scheduleType,
-		RunAtLoad:    true,
-	}
-
-	if scheduleType == "interval" {
-		intervalSeconds, err := p.integer("Interval seconds", 86400)
-		if err != nil {
-			return "", "", err
-		}
-		data.IntervalSeconds = intervalSeconds
-	} else {
-		hour, err := p.integer("Hour", 9)
-		if err != nil {
-			return "", "", err
-		}
-		minute, err := p.integer("Minute", 30)
-		if err != nil {
-			return "", "", err
-		}
-		data.Hour = hour
-		data.Minute = minute
-	}
-
-	runAtLoad, err := p.bool("Run at load", true)
-	if err != nil {
-		return "", "", err
-	}
-	data.RunAtLoad = runAtLoad
-
-	return manifestName, renderLaunchAgentTemplateWithData(data), nil
-}
-
-func renderGitHubRepoTemplate(name string) string {
-	return renderGitHubRepoTemplateWithData(gitHubRepoTemplateData{
-		ManifestName:     name,
-		RepoName:         name,
-		Visibility:       "public",
-		Description:      "Repository created by Forge",
-		Topics:           []string{"platform", "automation"},
-		DefaultBranch:    "main",
-		BranchProtection: true,
-	})
 }
 
 func renderGitHubRepoTemplateWithData(data gitHubRepoTemplateData) string {
@@ -940,7 +1080,7 @@ spec:
   name: %q
   # visibility must be either public or private.
   visibility: %s
-  # description is optional and should stay sanitized in this public repo.
+  # description is optional.
   description: %q
   # topics is optional and should use GitHub topic slugs.
 %s
@@ -948,19 +1088,7 @@ spec:
   default_branch: %s
   # branch_protection enables the baseline protected-branch workflow.
   branch_protection: %t
-`, data.ManifestName, data.ManifestName, data.RepoName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch, data.BranchProtection)
-}
-
-func renderHCPTFWorkspaceTemplate(name string) string {
-	return renderHCPTFWorkspaceTemplateWithData(hcpTFWorkspaceTemplateData{
-		ManifestName:     name,
-		WorkspaceName:    name,
-		Organization:     "example-org",
-		Project:          "platform",
-		VCSRepo:          "emkaytec/forge",
-		ExecutionMode:    "remote",
-		TerraformVersion: "1.9.8",
-	})
+`, data.ApplicationName, data.ApplicationName, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch, data.BranchProtection)
 }
 
 func renderHCPTFWorkspaceTemplateWithData(data hcpTFWorkspaceTemplateData) string {
@@ -983,7 +1111,7 @@ spec:
   execution_mode: %s
   # terraform_version is optional and pins the workspace runtime.
   terraform_version: %q
-`, data.ManifestName, data.ManifestName, data.WorkspaceName, data.Organization, data.Project, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
+`, data.ApplicationName, data.ApplicationName, data.ApplicationName, data.Organization, data.Project, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
 }
 
 func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData) string {
@@ -1007,18 +1135,6 @@ spec:
 `, data.ApplicationName, data.ApplicationName, data.RoleName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
 }
 
-func renderLaunchAgentTemplate(name string) string {
-	return renderLaunchAgentTemplateWithData(launchAgentTemplateData{
-		ManifestName:    name,
-		AgentName:       name,
-		Label:           "dev.emkaytec." + name,
-		Command:         "/opt/homebrew/bin/brew update",
-		ScheduleType:    "interval",
-		IntervalSeconds: 86400,
-		RunAtLoad:       true,
-	})
-}
-
 func renderLaunchAgentTemplateWithData(data launchAgentTemplateData) string {
 	return fmt.Sprintf(`# Generated by "forge manifest generate launch-agent %s".
 apiVersion: forge/v1
@@ -1039,7 +1155,7 @@ spec:
 %s
   # run_at_load controls whether the agent also runs on load.
   run_at_load: %t
-`, data.ManifestName, data.ManifestName, data.AgentName, data.Label, data.Command, data.ScheduleType, renderLaunchAgentSchedule(data), data.RunAtLoad)
+`, data.ApplicationName, data.ApplicationName, data.ApplicationName, data.Label, data.Command, data.ScheduleType, renderLaunchAgentSchedule(data), data.RunAtLoad)
 }
 
 func renderStringListBlock(field string, values []string) string {

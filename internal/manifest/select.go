@@ -236,13 +236,16 @@ func (p *promptSession) selectOneByNumber(label string, options []selectOption, 
 	}
 
 	for {
-		choice, err := p.line("Choose an option", strconv.Itoa(defaultIndex+1))
+		choice, eof, err := p.line("Choose an option", strconv.Itoa(defaultIndex+1))
 		if err != nil {
 			return selectOption{}, err
 		}
 
 		index, err := strconv.Atoi(choice)
 		if err != nil || index < 1 || index > len(options) {
+			if eof {
+				return selectOption{}, fmt.Errorf("selection canceled before option was chosen")
+			}
 			fmt.Fprintf(p.out, "Enter a number between 1 and %d.\n", len(options))
 			continue
 		}
@@ -263,7 +266,7 @@ func (p *promptSession) selectManyByNumber(label string, options []selectOption,
 	}
 
 	for {
-		answer, err := p.line("Choose one or more options (comma-separated)", strings.Join(defaultChoice, ","))
+		answer, eof, err := p.line("Choose one or more options (comma-separated)", strings.Join(defaultChoice, ","))
 		if err != nil {
 			return nil, err
 		}
@@ -293,6 +296,9 @@ func (p *promptSession) selectManyByNumber(label string, options []selectOption,
 			return selected, nil
 		}
 
+		if eof {
+			return nil, fmt.Errorf("selection canceled before options were chosen")
+		}
 		fmt.Fprintf(p.out, "Enter one or more numbers between 1 and %d.\n", len(options))
 	}
 }
