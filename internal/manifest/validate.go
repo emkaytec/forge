@@ -4,10 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
+	"github.com/emkaytec/forge/internal/reconcile"
 	"github.com/emkaytec/forge/internal/ui"
 	"github.com/emkaytec/forge/pkg/schema"
 	"github.com/spf13/cobra"
@@ -19,7 +18,7 @@ func newValidateCommand() *cobra.Command {
 		Short: "Validate Forge manifest files",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			paths, err := manifestPaths(args[0])
+			paths, err := reconcile.DiscoverManifests(args[0])
 			if err != nil {
 				return err
 			}
@@ -44,48 +43,6 @@ func newValidateCommand() *cobra.Command {
 	}
 }
 
-func manifestPaths(path string) ([]string, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-
-	if !info.IsDir() {
-		if !isManifestFile(path) {
-			return nil, fmt.Errorf("%s is not a .yaml or .yml file", path)
-		}
-
-		return []string{path}, nil
-	}
-
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var paths []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		if !isManifestFile(name) {
-			continue
-		}
-
-		paths = append(paths, filepath.Join(path, name))
-	}
-
-	sort.Strings(paths)
-
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s does not contain any .yaml or .yml manifest files", path)
-	}
-
-	return paths, nil
-}
-
 func validateManifestFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -94,15 +51,6 @@ func validateManifestFile(path string) error {
 
 	_, err = schema.DecodeManifest(data)
 	return err
-}
-
-func isManifestFile(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".yaml", ".yml":
-		return true
-	default:
-		return false
-	}
 }
 
 func describeValidationError(err error) string {
