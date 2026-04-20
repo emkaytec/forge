@@ -26,9 +26,20 @@ func newUpdateCommand(version string) *cobra.Command {
 		Short:   "Check for and install released Forge binaries",
 		GroupID: bootstrapGroupID,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := runUpdateCheck(cmd.Context(), version, selfupdate.Options{
-				Check:   checkOnly,
-				Version: requestedVersion,
+			message := "Checking for Forge updates..."
+			if !checkOnly {
+				message = "Installing Forge update..."
+			}
+
+			var result selfupdate.Result
+			spinner := ui.NewSpinner(message)
+			err := spinner.RunWhile(cmd.OutOrStdout(), func() error {
+				r, runErr := runUpdateCheck(cmd.Context(), version, selfupdate.Options{
+					Check:   checkOnly,
+					Version: requestedVersion,
+				})
+				result = r
+				return runErr
 			})
 			if err != nil {
 				ui.Error(cmd.ErrOrStderr(), err.Error())

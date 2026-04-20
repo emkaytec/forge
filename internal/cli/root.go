@@ -16,7 +16,6 @@ import (
 )
 
 const bootstrapGroupID = "bootstrap"
-const demoGroupID = "demo"
 
 var unknownCommandPattern = regexp.MustCompile(`unknown command "([^"]+)"`)
 
@@ -55,15 +54,10 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 		Title: "Bootstrap Commands",
 	})
 	root.AddGroup(&cobra.Group{
-		ID:    demoGroupID,
-		Title: "Demo Commands",
-	})
-	root.AddGroup(&cobra.Group{
 		ID:    manifest.GroupID,
 		Title: "Manifest Commands",
 	})
 	root.AddCommand(newHelpCommand(root))
-	root.AddCommand(newDemoCommand())
 	root.AddCommand(manifest.Command())
 	root.AddCommand(newUpdateCommand(version))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {

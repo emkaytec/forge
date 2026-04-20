@@ -229,40 +229,6 @@ func TestRunWithUnknownCommandWritesSuggestionAndHelpToStderr(t *testing.T) {
 	}
 }
 
-func TestRunWithDemoBannerWritesBanner(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := Run([]string{"demo", "banner"}, &stdout, &stderr, "dev"); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "███████╗") {
-		t.Fatalf("expected banner output, got %q", stdout.String())
-	}
-
-	if stderr.Len() != 0 {
-		t.Fatalf("expected no stderr output, got %q", stderr.String())
-	}
-}
-
-func TestRunWithDemoSpinnerWritesSuccessLine(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := Run([]string{"demo", "spinner", "--duration", "1ms"}, &stdout, &stderr, "dev"); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "✓ Spinner demo complete") {
-		t.Fatalf("expected success output, got %q", stdout.String())
-	}
-
-	if stderr.Len() != 0 {
-		t.Fatalf("expected no stderr output, got %q", stderr.String())
-	}
-}
-
 func TestRunWithNoColorProducesNoANSIInHelpOrBanner(t *testing.T) {
 	t.Setenv("NO_COLOR", "true")
 
@@ -283,7 +249,7 @@ func TestRunWithNoColorProducesNoANSIInHelpOrBanner(t *testing.T) {
 	}
 }
 
-func TestRunWithHelpListsDemoGroup(t *testing.T) {
+func TestRunWithHelpListsBootstrapGroup(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -291,20 +257,8 @@ func TestRunWithHelpListsDemoGroup(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "Demo") {
-		t.Fatalf("expected demo group in help output, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "demo") {
-		t.Fatalf("expected demo command in help output, got %q", stdout.String())
-	}
-
 	if !strings.Contains(stdout.String(), "Bootstrap\n  help") {
 		t.Fatalf("expected bootstrap group in help output, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "Demo\n  demo") {
-		t.Fatalf("expected demo group contents in help output, got %q", stdout.String())
 	}
 
 	if !strings.Contains(stdout.String(), "-h, --help      Show help for forge") {
@@ -330,52 +284,6 @@ func TestRunWithHelpListsManifestGroup(t *testing.T) {
 
 	if !strings.Contains(stdout.String(), "Manifest\n  manifest") {
 		t.Fatalf("expected manifest group contents in help output, got %q", stdout.String())
-	}
-}
-
-func TestRunWithDemoShowsSubcommands(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := Run([]string{"demo"}, &stdout, &stderr, "dev"); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "forge demo [command]") {
-		t.Fatalf("expected demo usage path, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "banner") || !strings.Contains(stdout.String(), "spinner") {
-		t.Fatalf("expected demo subcommands in output, got %q", stdout.String())
-	}
-
-	if stderr.Len() != 0 {
-		t.Fatalf("expected no stderr output, got %q", stderr.String())
-	}
-}
-
-func TestRunWithDemoHelpShowsSubcommands(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := Run([]string{"demo", "--help"}, &stdout, &stderr, "dev"); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "forge demo [command]") {
-		t.Fatalf("expected demo usage path, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "banner") || !strings.Contains(stdout.String(), "spinner") {
-		t.Fatalf("expected demo subcommands in help output, got %q", stdout.String())
-	}
-
-	if strings.Contains(stdout.String(), "███████╗") {
-		t.Fatalf("expected demo help to omit the banner, got %q", stdout.String())
-	}
-
-	if stderr.Len() != 0 {
-		t.Fatalf("expected no stderr output, got %q", stderr.String())
 	}
 }
 

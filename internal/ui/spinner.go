@@ -20,6 +20,7 @@ type spinnerModel struct {
 	spinner  spinner.Model
 	message  string
 	duration time.Duration
+	done     <-chan struct{}
 }
 
 func NewSpinner(message string) *Spinner {
@@ -47,7 +48,43 @@ func (s *Spinner) Run(w io.Writer, duration time.Duration) error {
 	return err
 }
 
+// RunWhile renders the spinner while fn runs and returns fn's error as soon as
+// fn returns. When the writer is not a TTY or the profile is ASCII, fn runs
+// synchronously without a spinner so non-interactive output stays clean.
+func (s *Spinner) RunWhile(w io.Writer, fn func() error) error {
+	if fn == nil {
+		return nil
+	}
+
+	if Profile() == termenv.Ascii || !isTerminalWriter(w) {
+		return fn()
+	}
+
+	var fnErr error
+	done := make(chan struct{})
+	go func() {
+		fnErr = fn()
+		close(done)
+	}()
+
+	model := spinnerModel{
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
+		message: s.message,
+		done:    done,
+	}
+
+	program := tea.NewProgram(model, tea.WithOutput(w))
+	if _, err := program.Run(); err != nil {
+		<-done
+		return err
+	}
+	return fnErr
+}
+
 func (m spinnerModel) Init() tea.Cmd {
+	if m.done != nil {
+		return tea.Batch(m.spinner.Tick, waitForDone(m.done))
+	}
 	return tea.Batch(m.spinner.Tick, stopSpinnerAfter(m.duration))
 }
 
@@ -72,6 +109,13 @@ func stopSpinnerAfter(duration time.Duration) tea.Cmd {
 	return tea.Tick(duration, func(time.Time) tea.Msg {
 		return stopSpinnerMsg{}
 	})
+}
+
+func waitForDone(done <-chan struct{}) tea.Cmd {
+	return func() tea.Msg {
+		<-done
+		return stopSpinnerMsg{}
+	}
 }
 
 func isTerminalWriter(w io.Writer) bool {
