@@ -14,7 +14,7 @@ forge/
 │   ├── update/          # self-update runtime used by the update command
 │   ├── workstation/     # reserved: workstation setup domain (not yet implemented)
 │   ├── manifest/        # manifest authoring and validation domain
-│   ├── reconcile/       # reserved: imperative reconciliation entrypoints (not yet implemented)
+│   ├── reconcile/       # shared reconciliation planning layer and per-target executors
 │   ├── initcmd/         # reserved: `forge init` domain (renamed from `init` to avoid confusion with Go's special `init()` semantics and keep directory/package naming unambiguous)
 │   └── local/           # reserved: local development environment domain (not yet implemented)
 ├── examples/            # sanitized sample manifests and public-safe examples
@@ -43,7 +43,7 @@ If a new file could plausibly live in either directory, choose `internal/` until
 
 ## Command domains
 
-Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest compose`, `forge manifest generate`, and `forge manifest validate`. The remaining reserved domains today are `workstation`, `reconcile`, `initcmd`, and `local`.
+Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest compose`, `forge manifest generate`, and `forge manifest validate`. The `reconcile` domain hosts the shared planning layer and per-target executors behind `forge reconcile local|remote`; the operator-facing command shell is added by [MK-10](https://linear.app/wiscotrashpanda/issue/MK-10/implement-forge-reconcile-local-and-remote-commands). The remaining reserved domains today are `workstation`, `initcmd`, and `local`.
 
 ### Registration pattern
 
