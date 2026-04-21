@@ -11,6 +11,7 @@ type Provider struct {
 	Label        string
 	NameSuffix   string
 	Issuer       string
+	Audience     string
 	TargetFlag   string
 	TargetLabel  string
 	TargetHelp   string
@@ -23,6 +24,7 @@ var providers = []Provider{
 		Label:        "GitHub Actions",
 		NameSuffix:   "gha",
 		Issuer:       "token.actions.githubusercontent.com",
+		Audience:     "sts.amazonaws.com",
 		TargetFlag:   "github-repo",
 		TargetLabel:  "GitHub repository (owner/repo)",
 		TargetHelp:   "Repository path to trust for GitHub Actions, such as emkaytec/forge",
@@ -33,6 +35,7 @@ var providers = []Provider{
 		Label:        "HCP Terraform",
 		NameSuffix:   "tfc",
 		Issuer:       "app.terraform.io",
+		Audience:     "aws.workload.identity",
 		TargetFlag:   "hcp-workspace",
 		TargetLabel:  "HCP Terraform workspace (organization/project/workspace)",
 		TargetHelp:   "Workspace path to trust for HCP Terraform, such as emkaytec/platform/forge",
