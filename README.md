@@ -152,6 +152,25 @@ Forge now ships an `init` command domain for one-time bootstrap work that is eas
 
 The command is idempotent. Re-running it reports whether each provider was created or already existed. It only bootstraps the identity providers; IAM roles and attached policies remain managed through `AWSIAMProvisioner` manifests.
 
+## Reconcile Workflows
+
+Forge now ships a `reconcile` command domain for plan-first reconciliation by execution target.
+
+- `forge reconcile local <file-or-dir>`
+- `forge reconcile remote <file-or-dir>`
+- `forge reconcile local --apply <file-or-dir>`
+- `forge reconcile remote --apply --strict <file-or-dir>`
+
+Both commands build and print a plan first. They default to a dry plan and require `--apply` before mutating live state. `--strict` fails when the manifest tree contains kinds that are incompatible with the selected target instead of skipping them.
+
+`forge reconcile remote` currently manages the staged remote kinds directly inside Forge while keeping the package layout ready for a later carve-out back into `anvil`:
+
+- `GitHubRepository` manages the current authenticated owner by default. Set `FORGE_GITHUB_OWNER` when the target repository should live under a different accessible user or organization.
+- `HCPTerraformWorkspace` uses `TF_TOKEN_app_terraform_io` or `TFE_TOKEN`.
+- `AWSIAMProvisioner` uses the ambient AWS CLI session and expects the shared OIDC providers from `forge init aws-oidc` to exist first.
+
+`forge reconcile local` remains the home for workstation-local kinds such as `LaunchAgent`, which do not belong in `anvil`.
+
 ## CI/CD
 
 Forge publishes CLI artifacts through GitHub Actions workflows under `.github/workflows/`.

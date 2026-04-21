@@ -10,6 +10,7 @@ import (
 
 	"github.com/emkaytec/forge/internal/initcmd"
 	"github.com/emkaytec/forge/internal/manifest"
+	"github.com/emkaytec/forge/internal/reconcilecmd"
 	"github.com/emkaytec/forge/internal/ui"
 	selfupdate "github.com/emkaytec/forge/internal/update"
 	"github.com/emkaytec/forge/internal/workstation"
@@ -60,6 +61,10 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 		Title: "Manifest Commands",
 	})
 	root.AddGroup(&cobra.Group{
+		ID:    reconcilecmd.GroupID,
+		Title: "Reconcile Commands",
+	})
+	root.AddGroup(&cobra.Group{
 		ID:    initcmd.GroupID,
 		Title: "Init Commands",
 	})
@@ -70,6 +75,7 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 	root.AddCommand(newHelpCommand(root))
 	root.AddCommand(initcmd.Command())
 	root.AddCommand(manifest.Command())
+	root.AddCommand(reconcilecmd.Command())
 	root.AddCommand(workstation.Command())
 	root.AddCommand(newUpdateCommand(version))
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
