@@ -25,9 +25,8 @@ var newManager = func() manager {
 // Command returns the configured workstation command group.
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "workstation",
-		Short:   "Operate tagged AWS and GCP workstations",
-		GroupID: GroupID,
+		Use:   "workstation",
+		Short: "Operate tagged AWS and GCP workstations",
 	}
 
 	cmd.AddCommand(

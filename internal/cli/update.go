@@ -22,9 +22,8 @@ func newUpdateCommand(version string) *cobra.Command {
 	var requestedVersion string
 
 	cmd := &cobra.Command{
-		Use:     "update",
-		Short:   "Check for and install released Forge binaries",
-		GroupID: bootstrapGroupID,
+		Use:   "update",
+		Short: "Check for and install released Forge binaries",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			message := "Checking for Forge updates..."
 			if !checkOnly {

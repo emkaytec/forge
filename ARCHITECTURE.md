@@ -63,15 +63,11 @@ package workstation
 
 import "github.com/spf13/cobra"
 
-// GroupID is the cobra group that hosts workstation subcommands in help output.
-const GroupID = "workstation"
-
 // Command returns the configured workstation command group.
 func Command() *cobra.Command {
     cmd := &cobra.Command{
-        Use:     "workstation",
-        Short:   "Manage local workstation setup.",
-        GroupID: GroupID,
+        Use:   "workstation",
+        Short: "Manage local workstation setup.",
     }
 
     // cmd.AddCommand(newStatusCommand(), newApplyCommand(), ...)
@@ -80,18 +76,20 @@ func Command() *cobra.Command {
 }
 ```
 
-`internal/cli` imports each domain package and registers its command during root assembly:
+`internal/cli` imports each domain package, assigns it to a help group, and registers its command during root assembly:
 
 ```go
 // in internal/cli/root.go (illustrative)
-root.AddGroup(&cobra.Group{ID: workstation.GroupID, Title: "Workstation Commands"})
-root.AddCommand(workstation.Command())
+root.AddGroup(&cobra.Group{ID: workflowGroupID, Title: "Workflow Commands"})
+cmd := workstation.Command()
+cmd.GroupID = workflowGroupID
+root.AddCommand(cmd)
 ```
 
 Rules that the registration pattern pins down:
 
 - A domain exports **one** `Command() *cobra.Command`. It does not export its subcommand constructors, flag structs, or internal helpers.
-- A domain declares its own `GroupID` constant so renaming or splitting its group stays inside the domain.
+- Help grouping is a cross-cutting UX concern owned by `internal/cli`, not by the domain. Groups can span multiple domains (e.g. `Setup` bundles `init`, `update`, and `help`), so the root command assembly stamps the `GroupID` onto each command after construction.
 - A domain does not register itself via `init()` side effects. The root command assembly lists every registered domain explicitly.
 - `internal/cli` is the only package that imports domain packages for registration. Domains do not import each other.
 

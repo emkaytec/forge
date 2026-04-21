@@ -2,9 +2,6 @@ package workstation
 
 import "strings"
 
-// GroupID is the cobra group that hosts workstation subcommands in help output.
-const GroupID = "workstation"
-
 type ProviderKind string
 
 const (

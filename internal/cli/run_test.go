@@ -103,7 +103,7 @@ func TestRunWithExplicitHelpOmitsBanner(t *testing.T) {
 		t.Fatalf("expected explicit help to omit the banner, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "Bootstrap") || !strings.Contains(stdout.String(), "help") {
+	if !strings.Contains(stdout.String(), "Setup") || !strings.Contains(stdout.String(), "help") {
 		t.Fatalf("stdout did not contain help text: %q", stdout.String())
 	}
 
@@ -186,7 +186,7 @@ func TestRunWithBogusCommandWritesHelpToStderr(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(stderr.String(), "Bootstrap") {
+	if !strings.Contains(stderr.String(), "Setup") {
 		t.Fatalf("expected help output in stderr, got %q", stderr.String())
 	}
 
@@ -216,7 +216,7 @@ func TestRunWithUnknownCommandWritesSuggestionAndHelpToStderr(t *testing.T) {
 		t.Fatalf("expected suggestion in stderr, got %q", stderr.String())
 	}
 
-	if !strings.Contains(stderr.String(), "Bootstrap") {
+	if !strings.Contains(stderr.String(), "Setup") {
 		t.Fatalf("expected help output in stderr, got %q", stderr.String())
 	}
 
@@ -249,7 +249,7 @@ func TestRunWithNoColorProducesNoANSIInHelpOrBanner(t *testing.T) {
 	}
 }
 
-func TestRunWithHelpListsBootstrapGroup(t *testing.T) {
+func TestRunWithHelpListsSetupGroup(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -257,8 +257,10 @@ func TestRunWithHelpListsBootstrapGroup(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "Bootstrap\n  help") {
-		t.Fatalf("expected bootstrap group in help output, got %q", stdout.String())
+	for _, want := range []string{"Setup\n  help", "init", "update"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected setup group entry %q in help output, got %q", want, stdout.String())
+		}
 	}
 
 	if !strings.Contains(stdout.String(), "-h, --help      Show help for forge") {
@@ -266,7 +268,7 @@ func TestRunWithHelpListsBootstrapGroup(t *testing.T) {
 	}
 }
 
-func TestRunWithHelpListsManifestGroup(t *testing.T) {
+func TestRunWithHelpListsWorkflowGroup(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -274,63 +276,10 @@ func TestRunWithHelpListsManifestGroup(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "Manifest") {
-		t.Fatalf("expected manifest group in help output, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "manifest") {
-		t.Fatalf("expected manifest command in help output, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "Manifest\n  manifest") {
-		t.Fatalf("expected manifest group contents in help output, got %q", stdout.String())
-	}
-}
-
-func TestRunWithHelpListsWorkstationGroup(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := Run([]string{"--help"}, &stdout, &stderr, "dev"); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "Workstation") {
-		t.Fatalf("expected workstation group in help output, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "workstation") {
-		t.Fatalf("expected workstation command in help output, got %q", stdout.String())
-	}
-}
-
-func TestRunWithHelpListsInitGroup(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := Run([]string{"--help"}, &stdout, &stderr, "dev"); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "Init") {
-		t.Fatalf("expected init group in help output, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "init") {
-		t.Fatalf("expected init command in help output, got %q", stdout.String())
-	}
-}
-
-func TestRunWithHelpListsReconcileGroup(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := Run([]string{"--help"}, &stdout, &stderr, "dev"); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "Reconcile\n  reconcile") {
-		t.Fatalf("expected reconcile group contents in help output, got %q", stdout.String())
+	for _, want := range []string{"Workflow\n  manifest", "reconcile", "workstation"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected workflow group entry %q in help output, got %q", want, stdout.String())
+		}
 	}
 }
 

@@ -5,9 +5,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// GroupID is the cobra group that hosts reconcile subcommands in help output.
-const GroupID = "reconcile"
-
 type commandExecutor interface {
 	reconcile.Executor
 }
@@ -15,9 +12,8 @@ type commandExecutor interface {
 // Command returns the configured reconcile command group.
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "reconcile",
-		Short:   "Plan and apply manifest reconciliation by execution target",
-		GroupID: GroupID,
+		Use:   "reconcile",
+		Short: "Plan and apply manifest reconciliation by execution target",
 	}
 
 	cmd.AddCommand(newLocalCommand())
