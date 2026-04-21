@@ -16,7 +16,7 @@ type Executor struct {
 	handlers map[schema.Kind]Handler
 }
 
-// NewExecutor returns a remote executor wired with the built-in stub
+// NewExecutor returns a remote executor wired with the built-in remote
 // handlers. No init side effects — the CLI shell in reconcilecmd
 // constructs this explicitly during command wiring.
 func NewExecutor() *Executor {

@@ -1,5 +1,4 @@
-// Package reconcilecmd hosts the cobra shell for
-// forge reconcile local and forge reconcile remote.
+// Package reconcilecmd hosts the `forge reconcile` command domain.
 //
 // The planning layer, executor contracts, and per-kind handlers live
 // in github.com/emkaytec/forge/internal/reconcile and its local/ and

@@ -101,21 +101,75 @@ Generated manifests write `<name>.yaml` into the current directory by default. P
 
 The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
 
-## Reconciliation
+## Workstation Workflows
 
-Forge reconciles manifests against their execution target:
+Forge now ships a `workstation` command domain for day-two workstation operations across tagged AWS and GCP instances.
 
-- `forge reconcile local <path>` — applies workstation-local kinds (currently `LaunchAgent`) against the machine.
-- `forge reconcile remote <path>` — applies cloud-capable kinds (`GitHubRepository`, `HCPTerraformWorkspace`, `AWSIAMProvisioner`) against their backends.
+- `forge workstation list`
+- `forge workstation start <name>`
+- `forge workstation stop <name>`
+- `forge workstation connect <name>`
+- `forge workstation reload-config [name]`
 
-Both commands share discovery, validation, and planning. `<path>` may be a single manifest file or a directory of `.yaml` / `.yml` manifests; each command filters to the kinds compatible with its target and reports the rest as skipped.
+`forge workstation list` discovers instances using the shared conventions called out in MK-5:
 
-Flags:
+- AWS tags: `forge-managed=true` and `forge-role=workstation`
+- GCP labels: `forge-managed=true` and `forge-role=workstation`
 
-- `--dry-run` prints the plan without mutating live state.
-- `--strict` exits non-zero when the plan contains skipped manifests (mixed trees that include kinds not compatible with the requested target).
+`connect` uses the workstation's Tailscale hostname. Forge will read that hostname from cloud metadata when present, and it can also be supplied in a local config file at `~/.config/forge/config.yaml`:
 
-Remote-kind handlers are stub seams today and return a "not implemented" error on apply; real delegation to the cloud runtime lands with the `anvil` carve-out.
+```yaml
+workstations:
+  - name: forge-dev
+    provider: aws
+    tailscale_hostname: forge-dev.tailnet.ts.net
+
+ansible:
+  repo_path: ~/Code/private/forge-config
+  inventory: inventory/hosts.yaml
+  playbook: playbooks/workstation.yaml
+```
+
+`reload-config` assumes the Ansible repo already exists locally. Forge is only the trigger. By default it expects:
+
+- an inventory at `inventory/hosts.yml` or `inventory/hosts.yaml`
+- a workstation playbook at `playbooks/workstation.yml` or `playbooks/workstation.yaml`
+- inventory host or group names that match the Forge workstation name used with `reload-config <name>`
+
+The Ansible repo path can be configured with `ansible.repo_path` in the config file above or with `FORGE_ANSIBLE_REPO`. `FORGE_ANSIBLE_INVENTORY` and `FORGE_ANSIBLE_PLAYBOOK` override the default inventory and playbook paths when needed.
+
+## Init Workflows
+
+Forge now ships an `init` command domain for one-time bootstrap work that is easier to do imperatively than declaratively.
+
+- `forge init aws-oidc`
+- `forge init aws-oidc --account-id 123456789012`
+
+`forge init aws-oidc` uses the ambient AWS session to resolve the target account when `--account-id` is omitted, prints that account ID at the start of the run, and then ensures these shared IAM OIDC providers exist:
+
+- GitHub Actions at `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`
+- HCP Terraform at `https://app.terraform.io` with audience `aws.workload.identity`
+
+The command is idempotent. Re-running it reports whether each provider was created or already existed. It only bootstraps the identity providers; IAM roles and attached policies remain managed through `AWSIAMProvisioner` manifests.
+
+## Reconcile Workflows
+
+Forge now ships a `reconcile` command domain for plan-first reconciliation by execution target.
+
+- `forge reconcile local <file-or-dir>`
+- `forge reconcile remote <file-or-dir>`
+- `forge reconcile local --apply <file-or-dir>`
+- `forge reconcile remote --apply --strict <file-or-dir>`
+
+Both commands build and print a plan first. They default to a dry plan and require `--apply` before mutating live state. `--strict` fails when the manifest tree contains kinds that are incompatible with the selected target instead of skipping them.
+
+`forge reconcile remote` currently manages the staged remote kinds directly inside Forge while keeping the package layout ready for a later carve-out back into `anvil`:
+
+- `GitHubRepository` manages the current authenticated owner by default. Set `FORGE_GITHUB_OWNER` when the target repository should live under a different accessible user or organization.
+- `HCPTerraformWorkspace` uses `TF_TOKEN_app_terraform_io` or `TFE_TOKEN`.
+- `AWSIAMProvisioner` uses the ambient AWS CLI session and expects the shared OIDC providers from `forge init aws-oidc` to exist first.
+
+`forge reconcile local` remains the home for workstation-local kinds such as `LaunchAgent`, which do not belong in `anvil`.
 
 ## CI/CD
 

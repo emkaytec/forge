@@ -4,45 +4,60 @@ import (
 	"fmt"
 
 	"github.com/emkaytec/forge/internal/reconcile"
+	"github.com/emkaytec/forge/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 // runReconcile drives BuildPlan + applyPlan for one target.
 func runReconcile(cmd *cobra.Command, path string, opts reconcile.ApplyOptions, executor reconcile.Executor) error {
-	plan, err := reconcile.BuildPlan(cmd.Context(), executor, path)
+	var plan *reconcile.Plan
+	spinner := ui.NewSpinner(fmt.Sprintf("Building %s reconcile plan...", executor.Target()))
+	err := spinner.RunWhile(cmd.OutOrStdout(), func() error {
+		builtPlan, buildErr := reconcile.BuildPlan(cmd.Context(), executor, path)
+		plan = builtPlan
+		return buildErr
+	})
 	if err != nil {
+		ui.Error(cmd.ErrOrStderr(), err.Error())
 		return err
 	}
 
 	return applyPlan(cmd, plan, opts, executor)
 }
 
-// applyPlan renders the outcome of a pre-built plan. Dry-run
-// short-circuits after planning; strict mode rejects plans containing
-// skipped manifests before Apply runs.
+// applyPlan renders the plan first, then optionally applies it.
 func applyPlan(cmd *cobra.Command, plan *reconcile.Plan, opts reconcile.ApplyOptions, executor reconcile.Executor) error {
 	stdout := cmd.OutOrStdout()
+	reconcile.RenderPlan(stdout, plan)
 
 	if plan.HasBlockingErrors() {
-		reconcile.RenderPlan(stdout, plan)
 		return fmt.Errorf("reconcile failed for %d manifest(s)", len(plan.LoadErrors))
 	}
 
 	if opts.Strict && len(plan.Skipped) > 0 {
-		reconcile.RenderPlan(stdout, plan)
 		return reconcile.ErrStrictSkipped
 	}
 
 	if opts.DryRun {
-		reconcile.RenderPlan(stdout, plan)
 		return nil
 	}
 
-	result, err := executor.Apply(cmd.Context(), plan, opts)
+	var result *reconcile.ApplyResult
+	spinner := ui.NewSpinner(fmt.Sprintf("Applying %s reconcile plan...", executor.Target()))
+	err := spinner.RunWhile(stdout, func() error {
+		applied, applyErr := executor.Apply(cmd.Context(), plan, opts)
+		result = applied
+		return applyErr
+	})
 	if err != nil {
+		ui.Error(cmd.ErrOrStderr(), err.Error())
 		return err
 	}
+	if result == nil {
+		return fmt.Errorf("reconcile: apply returned no result")
+	}
 
+	fmt.Fprintln(stdout)
 	reconcile.RenderApplyResult(stdout, result)
 
 	if len(result.Failed) > 0 {

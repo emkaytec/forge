@@ -8,8 +8,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var newRemoteExecutor = func() (commandExecutor, error) {
+	return remote.NewExecutor(), nil
+}
+
 func newRemoteCommand() *cobra.Command {
 	var (
+		apply  bool
 		dryRun bool
 		strict bool
 	)
@@ -24,21 +29,26 @@ manifests. Local-only kinds in the path are skipped with a reason
 unless --strict is set, in which case the command exits without
 applying anything.
 
-Remote kind handlers are stub seams today and report ErrNotImplemented
-on apply; real delegation to anvil lands in a follow-up ticket.`),
+The command prints the plan by default. Pass --apply to mutate remote
+state after the plan is rendered.`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			executor := remote.NewExecutor()
+			executor, err := newRemoteExecutor()
+			if err != nil {
+				return err
+			}
 
 			return runReconcile(cmd, args[0], reconcile.ApplyOptions{
-				DryRun: dryRun,
+				DryRun: !apply || dryRun,
 				Strict: strict,
 			}, executor)
 		},
 	}
 
+	cmd.Flags().BoolVar(&apply, "apply", false, "Apply the planned changes instead of running a dry plan")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print the plan without mutating live state")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Reject plans containing manifests that do not target remote")
+	_ = cmd.Flags().MarkHidden("dry-run")
 
 	return cmd
 }
