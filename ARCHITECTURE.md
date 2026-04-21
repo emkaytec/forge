@@ -12,10 +12,11 @@ forge/
 │   ├── cli/             # product shell — cobra wiring, help rendering, flag parsing
 │   ├── ui/              # shared styled output primitives (banner, palette, writers)
 │   ├── update/          # self-update runtime used by the update command
-│   ├── workstation/     # reserved: workstation setup domain (not yet implemented)
+│   ├── workstation/     # `forge workstation` domain
 │   ├── manifest/        # manifest authoring and validation domain
 │   ├── reconcile/       # shared reconciliation planning layer and per-target executors
-│   ├── initcmd/         # reserved: `forge init` domain (renamed from `init` to avoid confusion with Go's special `init()` semantics and keep directory/package naming unambiguous)
+│   ├── reconcilecmd/    # `forge reconcile` command shell over the shared reconcile engine
+│   ├── initcmd/         # `forge init` domain (renamed from `init` to avoid confusion with Go's special `init()` semantics and keep directory/package naming unambiguous)
 │   └── local/           # reserved: local development environment domain (not yet implemented)
 ├── examples/            # sanitized sample manifests and public-safe examples
 ├── pkg/                 # reserved: staging area for alloy-bound shared types (empty today)
@@ -43,7 +44,14 @@ If a new file could plausibly live in either directory, choose `internal/` until
 
 ## Command domains
 
-Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. `manifest` is the first implemented domain and currently owns `forge manifest compose`, `forge manifest generate`, and `forge manifest validate`. The `reconcile` domain hosts the shared planning layer and per-target executors behind `forge reconcile local|remote`; the operator-facing command shell is added by [MK-10](https://linear.app/wiscotrashpanda/issue/MK-10/implement-forge-reconcile-local-and-remote-commands). The remaining reserved domains today are `workstation`, `initcmd`, and `local`.
+Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. The implemented domains today are:
+
+- `manifest` for `forge manifest compose|generate|validate`
+- `workstation` for `forge workstation ...`
+- `initcmd` for `forge init ...`
+- `reconcilecmd` for `forge reconcile local|remote`
+
+`internal/reconcile/` remains the shared engine package underneath `reconcilecmd`. Keeping the command shell separate avoids an import cycle with the local and remote executor packages while still preserving a later carve-out path into `anvil`.
 
 ### Registration pattern
 

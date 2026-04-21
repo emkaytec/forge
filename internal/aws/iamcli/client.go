@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -171,6 +172,134 @@ func (c *Client) CreateOIDCProvider(ctx context.Context, issuerURL string, audie
 	return response.ARN, nil
 }
 
+type Role struct {
+	Name             string
+	ARN              string
+	AssumeRolePolicy string
+}
+
+// GetRole fetches one IAM role by name.
+func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
+	if err := c.EnsureCLI(); err != nil {
+		return nil, err
+	}
+
+	output, err := c.runner.Output(ctx, "aws", "iam", "get-role", "--role-name", roleName, "--output", "json")
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Role struct {
+			RoleName                 string `json:"RoleName"`
+			ARN                      string `json:"Arn"`
+			AssumeRolePolicyDocument string `json:"AssumeRolePolicyDocument"`
+		} `json:"Role"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("decode get role response: %w", err)
+	}
+
+	policy, err := url.QueryUnescape(response.Role.AssumeRolePolicyDocument)
+	if err != nil {
+		policy = response.Role.AssumeRolePolicyDocument
+	}
+
+	return &Role{
+		Name:             response.Role.RoleName,
+		ARN:              response.Role.ARN,
+		AssumeRolePolicy: policy,
+	}, nil
+}
+
+// CreateRole creates a role with the given trust policy.
+func (c *Client) CreateRole(ctx context.Context, roleName string, assumeRolePolicy string) error {
+	if err := c.EnsureCLI(); err != nil {
+		return err
+	}
+
+	_, err := c.runner.Output(
+		ctx,
+		"aws",
+		"iam",
+		"create-role",
+		"--role-name",
+		roleName,
+		"--assume-role-policy-document",
+		assumeRolePolicy,
+		"--output",
+		"json",
+	)
+	return err
+}
+
+// UpdateAssumeRolePolicy replaces the trust policy for an existing role.
+func (c *Client) UpdateAssumeRolePolicy(ctx context.Context, roleName string, assumeRolePolicy string) error {
+	if err := c.EnsureCLI(); err != nil {
+		return err
+	}
+
+	_, err := c.runner.Output(
+		ctx,
+		"aws",
+		"iam",
+		"update-assume-role-policy",
+		"--role-name",
+		roleName,
+		"--policy-document",
+		assumeRolePolicy,
+	)
+	return err
+}
+
+// ListAttachedRolePolicies returns the attached managed policy ARNs for a role.
+func (c *Client) ListAttachedRolePolicies(ctx context.Context, roleName string) ([]string, error) {
+	if err := c.EnsureCLI(); err != nil {
+		return nil, err
+	}
+
+	output, err := c.runner.Output(ctx, "aws", "iam", "list-attached-role-policies", "--role-name", roleName, "--output", "json")
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		AttachedPolicies []struct {
+			PolicyARN string `json:"PolicyArn"`
+		} `json:"AttachedPolicies"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("decode attached role policies response: %w", err)
+	}
+
+	policies := make([]string, 0, len(response.AttachedPolicies))
+	for _, policy := range response.AttachedPolicies {
+		policies = append(policies, policy.PolicyARN)
+	}
+
+	return policies, nil
+}
+
+// AttachRolePolicy attaches one managed policy ARN to the role.
+func (c *Client) AttachRolePolicy(ctx context.Context, roleName string, policyARN string) error {
+	if err := c.EnsureCLI(); err != nil {
+		return err
+	}
+
+	_, err := c.runner.Output(ctx, "aws", "iam", "attach-role-policy", "--role-name", roleName, "--policy-arn", policyARN)
+	return err
+}
+
+// DetachRolePolicy detaches one managed policy ARN from the role.
+func (c *Client) DetachRolePolicy(ctx context.Context, roleName string, policyARN string) error {
+	if err := c.EnsureCLI(); err != nil {
+		return err
+	}
+
+	_, err := c.runner.Output(ctx, "aws", "iam", "detach-role-policy", "--role-name", roleName, "--policy-arn", policyARN)
+	return err
+}
+
 func isNoSuchEntity(err error) bool {
 	var commandErr *commandError
 	if errors.As(err, &commandErr) {
@@ -178,4 +307,9 @@ func isNoSuchEntity(err error) bool {
 	}
 
 	return strings.Contains(err.Error(), "NoSuchEntity")
+}
+
+// IsNoSuchEntity reports whether the AWS CLI returned IAM's NoSuchEntity error.
+func IsNoSuchEntity(err error) bool {
+	return isNoSuchEntity(err)
 }
