@@ -287,6 +287,23 @@ func TestRunWithHelpListsManifestGroup(t *testing.T) {
 	}
 }
 
+func TestRunWithHelpListsWorkstationGroup(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"--help"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "Workstation") {
+		t.Fatalf("expected workstation group in help output, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "workstation") {
+		t.Fatalf("expected workstation command in help output, got %q", stdout.String())
+	}
+}
+
 func TestRunWithManifestShowsGenerateSubcommand(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

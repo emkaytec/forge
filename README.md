@@ -101,6 +101,43 @@ Generated manifests write `<name>.yaml` into the current directory by default. P
 
 The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
 
+## Workstation Workflows
+
+Forge now ships a `workstation` command domain for day-two workstation operations across tagged AWS and GCP instances.
+
+- `forge workstation list`
+- `forge workstation start <name>`
+- `forge workstation stop <name>`
+- `forge workstation connect <name>`
+- `forge workstation reload-config [name]`
+
+`forge workstation list` discovers instances using the shared conventions called out in MK-5:
+
+- AWS tags: `forge-managed=true` and `forge-role=workstation`
+- GCP labels: `forge-managed=true` and `forge-role=workstation`
+
+`connect` uses the workstation's Tailscale hostname. Forge will read that hostname from cloud metadata when present, and it can also be supplied in a local config file at `~/.config/forge/config.yaml`:
+
+```yaml
+workstations:
+  - name: forge-dev
+    provider: aws
+    tailscale_hostname: forge-dev.tailnet.ts.net
+
+ansible:
+  repo_path: ~/Code/private/forge-config
+  inventory: inventory/hosts.yaml
+  playbook: playbooks/workstation.yaml
+```
+
+`reload-config` assumes the Ansible repo already exists locally. Forge is only the trigger. By default it expects:
+
+- an inventory at `inventory/hosts.yml` or `inventory/hosts.yaml`
+- a workstation playbook at `playbooks/workstation.yml` or `playbooks/workstation.yaml`
+- inventory host or group names that match the Forge workstation name used with `reload-config <name>`
+
+The Ansible repo path can be configured with `ansible.repo_path` in the config file above or with `FORGE_ANSIBLE_REPO`. `FORGE_ANSIBLE_INVENTORY` and `FORGE_ANSIBLE_PLAYBOOK` override the default inventory and playbook paths when needed.
+
 ## CI/CD
 
 Forge publishes CLI artifacts through GitHub Actions workflows under `.github/workflows/`.
