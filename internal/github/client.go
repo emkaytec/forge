@@ -142,6 +142,19 @@ func (c *Client) GetAccount(ctx context.Context, owner string) (*Account, error)
 	return &account, nil
 }
 
+// ListUserOrganizations returns the organizations the authenticated user
+// is a member of. Only the first page (up to 100 entries) is returned —
+// the forge selector UX degrades gracefully past that and no one
+// operating a forge CLI has more than 100 GitHub orgs.
+func (c *Client) ListUserOrganizations(ctx context.Context) ([]Account, error) {
+	var accounts []Account
+	if err := c.request(ctx, http.MethodGet, "/user/orgs?per_page=100", nil, &accounts, http.StatusOK); err != nil {
+		return nil, err
+	}
+
+	return accounts, nil
+}
+
 func (c *Client) CreateOrganizationRepository(ctx context.Context, org string, request CreateRepositoryRequest) (*Repository, error) {
 	var repository Repository
 	if err := c.request(ctx, http.MethodPost, fmt.Sprintf("/orgs/%s/repos", url.PathEscape(org)), request, &repository, http.StatusCreated); err != nil {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -919,26 +920,67 @@ func normalizeOwnerSlug(owner string) string {
 	return strings.Trim(b.String(), "-")
 }
 
+// ghMemberships groups the GitHub identities a single token can act on
+// behalf of: the user's own login plus every organization they are a
+// member of.
+type ghMemberships struct {
+	Login string
+	Orgs  []string
+}
+
+const manualOwnerValue = "__manual__"
+
 // resolveGitHubOwner returns spec.owner from --owner or a prompt. When
-// prompting, the default is the login of the currently authenticated GitHub
-// user (so hitting Enter uses the right identity); if no token is available
-// or the API is unreachable, the prompt falls back to no default.
+// prompting, Forge tries to fetch the authenticated user's login plus
+// their organization memberships and presents them as a selector; if the
+// lookup fails (no token, no network, reduced scopes) the prompt falls
+// back to a free-form text entry with no default.
 func resolveGitHubOwner(ctx context.Context, p *promptSession, flagValue string) (string, error) {
 	if trimmed := strings.TrimSpace(flagValue); trimmed != "" {
 		return trimmed, nil
 	}
 
-	return inputPrompt(p, "Repository owner", currentGitHubLogin(ctx), true)
+	memberships := currentGitHubMemberships(ctx)
+	if memberships.Login == "" {
+		return inputPrompt(p, "Repository owner", "", true)
+	}
+
+	options := make([]selectOption, 0, len(memberships.Orgs)+2)
+	options = append(options, selectOption{
+		Label: memberships.Login + " (personal)",
+		Value: memberships.Login,
+	})
+	for _, org := range memberships.Orgs {
+		options = append(options, selectOption{
+			Label: org + " (organization)",
+			Value: org,
+		})
+	}
+	options = append(options, selectOption{
+		Label: "Enter a different owner manually",
+		Value: manualOwnerValue,
+	})
+
+	selected, err := selectOnePrompt(p, "Repository owner", options, 0)
+	if err != nil {
+		return "", err
+	}
+	if selected.Value == manualOwnerValue {
+		return inputPrompt(p, "Repository owner", "", true)
+	}
+	return selected.Value, nil
 }
 
-// currentGitHubLogin fetches the authenticated GitHub user's login. A short
-// timeout keeps slow or unreachable networks from stalling the generator; any
-// failure (missing token, API error, timeout) returns "" so the caller can
-// fall back to an empty default.
-var currentGitHubLogin = func(ctx context.Context) string {
+// currentGitHubMemberships fetches the authenticated user's login plus
+// the organizations they belong to. A short timeout keeps slow networks
+// from stalling the generator; any failure (missing token, API error,
+// reduced token scopes, timeout) returns a zero value so the caller can
+// degrade to a free-form prompt. Org listing failures leave the login
+// populated so the selector still shows the personal account.
+var currentGitHubMemberships = func(ctx context.Context) ghMemberships {
 	client, err := ghapi.NewClientFromEnv()
 	if err != nil {
-		return ""
+		return ghMemberships{}
 	}
 
 	if ctx == nil {
@@ -949,9 +991,23 @@ var currentGitHubLogin = func(ctx context.Context) string {
 
 	account, err := client.GetAuthenticatedUser(ctx)
 	if err != nil {
-		return ""
+		return ghMemberships{}
 	}
-	return account.Login
+
+	orgs, err := client.ListUserOrganizations(ctx)
+	if err != nil {
+		return ghMemberships{Login: account.Login}
+	}
+
+	logins := make([]string, 0, len(orgs))
+	for _, org := range orgs {
+		if trimmed := strings.TrimSpace(org.Login); trimmed != "" {
+			logins = append(logins, trimmed)
+		}
+	}
+	sort.Strings(logins)
+
+	return ghMemberships{Login: account.Login, Orgs: logins}
 }
 
 func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (string, error) {
