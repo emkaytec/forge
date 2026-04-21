@@ -2,6 +2,7 @@ package githubrepo
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	ghapi "github.com/emkaytec/forge/internal/github"
@@ -11,6 +12,7 @@ import (
 
 type fakeClient struct {
 	authenticatedUser *ghapi.Account
+	accountType       string
 	repository        *ghapi.Repository
 	repositoryErr     error
 	createdRequest    ghapi.CreateRepositoryRequest
@@ -21,8 +23,11 @@ func (f *fakeClient) GetAuthenticatedUser(context.Context) (*ghapi.Account, erro
 	return f.authenticatedUser, nil
 }
 
-func (f *fakeClient) GetAccount(context.Context, string) (*ghapi.Account, error) {
-	return &ghapi.Account{Login: "example", Type: "User"}, nil
+func (f *fakeClient) GetAccount(_ context.Context, owner string) (*ghapi.Account, error) {
+	if f.accountType != "" {
+		return &ghapi.Account{Login: owner, Type: f.accountType}, nil
+	}
+	return &ghapi.Account{Login: owner, Type: "User"}, nil
 }
 
 func (f *fakeClient) GetRepository(context.Context, string, string) (*ghapi.Repository, error) {
@@ -70,6 +75,7 @@ func TestDescribeChangeCreatesRepositoryWhenMissing(t *testing.T) {
 		Kind:     schema.KindGitHubRepo,
 		Metadata: schema.Metadata{Name: "sample"},
 		Spec: &schema.GitHubRepoSpec{
+			Owner:      "example",
 			Name:       "sample",
 			Visibility: "private",
 		},
@@ -94,6 +100,7 @@ func TestApplyCreatesUserRepositoryWithAutoInit(t *testing.T) {
 			Kind:     schema.KindGitHubRepo,
 			Metadata: schema.Metadata{Name: "sample"},
 			Spec: &schema.GitHubRepoSpec{
+				Owner:       "example",
 				Name:        "sample",
 				Visibility:  "private",
 				Description: "managed repo",
@@ -109,5 +116,36 @@ func TestApplyCreatesUserRepositoryWithAutoInit(t *testing.T) {
 	}
 	if !fake.createdRequest.AutoInit {
 		t.Fatal("expected auto_init=true")
+	}
+}
+
+func TestApplyRejectsUserOwnerMismatch(t *testing.T) {
+	fake := &fakeClient{
+		authenticatedUser: &ghapi.Account{Login: "example", Type: "User"},
+		accountType:       "User",
+		repositoryErr:     &ghapi.APIError{StatusCode: 404},
+	}
+	handler := New(WithClientFactory(func() (client, error) { return fake, nil }))
+
+	err := handler.Apply(context.Background(), reconcile.ResourceChange{
+		Manifest: &schema.Manifest{
+			Kind:     schema.KindGitHubRepo,
+			Metadata: schema.Metadata{Name: "sample"},
+			Spec: &schema.GitHubRepoSpec{
+				Owner:      "someone-else",
+				Name:       "sample",
+				Visibility: "private",
+			},
+		},
+		Action: reconcile.ActionCreate,
+	}, reconcile.ApplyOptions{})
+	if err == nil {
+		t.Fatal("expected error when spec.owner is a different user")
+	}
+	if !strings.Contains(err.Error(), "someone-else") {
+		t.Fatalf("error did not mention the mismatched owner: %v", err)
+	}
+	if fake.created {
+		t.Fatal("expected no repository to be created")
 	}
 }
