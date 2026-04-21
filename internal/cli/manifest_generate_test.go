@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/emkaytec/forge/internal/github"
 	"github.com/emkaytec/forge/pkg/schema"
 )
 
@@ -333,9 +334,11 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 	t.Chdir(tempDir)
 
 	// Prevent the owner prompt from hitting the real GitHub API on a dev
-	// machine that happens to have a token configured.
+	// machine that happens to have a token configured or a logged-in gh CLI.
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
+	restoreGH := github.SetLookupGHTokenForTesting(func() string { return "" })
+	t.Cleanup(restoreGH)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

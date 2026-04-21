@@ -51,7 +51,10 @@ func NewClientFromEnv() (*Client, error) {
 		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
 	}
 	if token == "" {
-		return nil, fmt.Errorf("missing GitHub token: set GITHUB_TOKEN or GH_TOKEN")
+		token = lookupGHToken()
+	}
+	if token == "" {
+		return nil, fmt.Errorf("missing GitHub token: set GITHUB_TOKEN or GH_TOKEN, or run `gh auth login`")
 	}
 
 	return NewClient(DefaultBaseURL, token, nil), nil
