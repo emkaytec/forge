@@ -107,3 +107,27 @@ func TestNewClientFromEnvPrefersGHTokenWhenOnlyGHTokenSet(t *testing.T) {
 		t.Fatalf("token = %q, want gh-token-env (GH_TOKEN should beat gh CLI fallback)", client.token)
 	}
 }
+
+func TestListUserOrganizationsReturnsAccounts(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/user/orgs", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "per_page=100" {
+			t.Errorf("query = %q, want per_page=100", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode([]Account{
+			{Login: "emkaytec", Type: "Organization"},
+			{Login: "some-other-org", Type: "Organization"},
+		})
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "test-token", nil)
+	orgs, err := client.ListUserOrganizations(context.Background())
+	if err != nil {
+		t.Fatalf("ListUserOrganizations() error = %v", err)
+	}
+	if len(orgs) != 2 || orgs[0].Login != "emkaytec" || orgs[1].Login != "some-other-org" {
+		t.Fatalf("orgs = %+v, want emkaytec + some-other-org", orgs)
+	}
+}
