@@ -18,7 +18,10 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const bootstrapGroupID = "bootstrap"
+const (
+	setupGroupID    = "setup"
+	workflowGroupID = "workflow"
+)
 
 var unknownCommandPattern = regexp.MustCompile(`unknown command "([^"]+)"`)
 
@@ -53,31 +56,29 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 	root.SetHelpCommand(&cobra.Command{Hidden: true})
 	root.SetHelpCommandGroupID("")
 	root.AddGroup(&cobra.Group{
-		ID:    bootstrapGroupID,
-		Title: "Bootstrap Commands",
+		ID:    setupGroupID,
+		Title: "Setup Commands",
 	})
 	root.AddGroup(&cobra.Group{
-		ID:    manifest.GroupID,
-		Title: "Manifest Commands",
+		ID:    workflowGroupID,
+		Title: "Workflow Commands",
 	})
-	root.AddGroup(&cobra.Group{
-		ID:    reconcilecmd.GroupID,
-		Title: "Reconcile Commands",
-	})
-	root.AddGroup(&cobra.Group{
-		ID:    initcmd.GroupID,
-		Title: "Init Commands",
-	})
-	root.AddGroup(&cobra.Group{
-		ID:    workstation.GroupID,
-		Title: "Workstation Commands",
-	})
-	root.AddCommand(newHelpCommand(root))
-	root.AddCommand(initcmd.Command())
-	root.AddCommand(manifest.Command())
-	root.AddCommand(reconcilecmd.Command())
-	root.AddCommand(workstation.Command())
-	root.AddCommand(newUpdateCommand(version))
+
+	groupAssignments := []struct {
+		command *cobra.Command
+		groupID string
+	}{
+		{newHelpCommand(root), setupGroupID},
+		{initcmd.Command(), setupGroupID},
+		{newUpdateCommand(version), setupGroupID},
+		{manifest.Command(), workflowGroupID},
+		{reconcilecmd.Command(), workflowGroupID},
+		{workstation.Command(), workflowGroupID},
+	}
+	for _, assignment := range groupAssignments {
+		assignment.command.GroupID = assignment.groupID
+		root.AddCommand(assignment.command)
+	}
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		renderHelp(cmd.OutOrStdout(), cmd, false, "")
 	})
@@ -94,9 +95,8 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 
 func newHelpCommand(root *cobra.Command) *cobra.Command {
 	return &cobra.Command{
-		Use:     "help",
-		Short:   "Show this help output",
-		GroupID: bootstrapGroupID,
+		Use:   "help",
+		Short: "Show this help output",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			renderHelp(cmd.OutOrStdout(), root, false, "")
 			return nil

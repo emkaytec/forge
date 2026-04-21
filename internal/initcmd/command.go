@@ -7,9 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// GroupID is the cobra group that hosts init subcommands in help output.
-const GroupID = "init"
-
 var newManager = func() oidcManager {
 	return newAWSOIDCManager()
 }
@@ -17,9 +14,8 @@ var newManager = func() oidcManager {
 // Command returns the configured init command group.
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "init",
-		Short:   "Bootstrap one-time cloud integration setup",
-		GroupID: GroupID,
+		Use:   "init",
+		Short: "Bootstrap one-time cloud integration setup",
 	}
 
 	cmd.AddCommand(newAWSOIDCCommand())
