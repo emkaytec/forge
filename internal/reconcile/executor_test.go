@@ -54,6 +54,7 @@ kind: GitHubRepository
 metadata:
   name: sample
 spec:
+  owner: emkaytec
   name: sample
   visibility: private
 `

@@ -2,17 +2,20 @@ package manifest
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/emkaytec/forge/internal/aws/accounts"
 	"github.com/emkaytec/forge/internal/aws/oidc"
+	ghapi "github.com/emkaytec/forge/internal/github"
 	"github.com/emkaytec/forge/internal/ui"
 	"github.com/emkaytec/forge/pkg/schema"
 	"github.com/spf13/cobra"
@@ -38,6 +41,8 @@ const (
 
 type gitHubRepoTemplateData struct {
 	ApplicationName  string
+	ManifestName     string
+	Owner            string
 	Visibility       string
 	Description      string
 	Topics           []string
@@ -98,6 +103,7 @@ func newGenerateGitHubRepoCommand() *cobra.Command {
 	var (
 		outputDir        string
 		application      string
+		owner            string
 		visibility       string
 		description      string
 		topics           []string
@@ -112,15 +118,16 @@ func newGenerateGitHubRepoCommand() *cobra.Command {
 
 If the required inputs are not provided as flags, Forge prompts for:
   1. the application name
-  2. the repository visibility (public or private)
-  3. an optional description and topic list
-  4. the default branch and branch-protection choice
+  2. the repository owner (user or organization); defaults to the current GitHub login when available
+  3. the repository visibility (public or private)
+  4. an optional description and topic list
+  5. the default branch and branch-protection choice
 
 Forge writes the manifest to <application>/github-repo.yaml under the application directory.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate github-repo forge",
-			"  forge manifest generate github-repo --application forge --visibility private --default-branch main",
-			"  forge manifest generate github-repo --application forge --topic platform --topic automation --branch-protection=false",
+			"  forge manifest generate github-repo --application forge --owner emkaytec --visibility private --default-branch main",
+			"  forge manifest generate github-repo --application forge --owner emkaytec --topic platform --topic automation --branch-protection=false",
 		}, "\n"),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -132,6 +139,11 @@ Forge writes the manifest to <application>/github-repo.yaml under the applicatio
 			configureGitHubRepoFlow(p)
 
 			applicationName, err := resolveApplicationName(p, args, application)
+			if err != nil {
+				return err
+			}
+
+			ownerValue, err := resolveGitHubOwner(cmd.Context(), p, owner)
 			if err != nil {
 				return err
 			}
@@ -169,8 +181,11 @@ Forge writes the manifest to <application>/github-repo.yaml under the applicatio
 				fmt.Fprintln(p.out)
 			}
 
+			manifestName := scopedManifestName(ownerValue, applicationName)
 			data := gitHubRepoTemplateData{
 				ApplicationName:  applicationName,
+				ManifestName:     manifestName,
+				Owner:            ownerValue,
 				Visibility:       visibilityValue,
 				Description:      descriptionValue,
 				Topics:           topicsValue,
@@ -178,12 +193,13 @@ Forge writes the manifest to <application>/github-repo.yaml under the applicatio
 				BranchProtection: branchProtectionValue,
 			}
 
-			return writeGeneratedManifest(cmd, applicationName, "github-repo", outputDir, renderGitHubRepoTemplateWithData(data))
+			return writeGeneratedManifest(cmd, manifestName, "github-repo", outputDir, renderGitHubRepoTemplateWithData(data))
 		},
 	}
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
 	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the output directory")
+	cmd.Flags().StringVar(&owner, "owner", "", "GitHub user or organization that will own the repository")
 	cmd.Flags().StringVar(&visibility, "visibility", "", "Repository visibility: public or private")
 	cmd.Flags().StringVar(&description, "description", "", "Repository description (optional)")
 	cmd.Flags().StringSliceVar(&topics, "topic", nil, "GitHub topic slug to attach (repeat or comma-separate)")
@@ -636,6 +652,7 @@ func configureFlow(p *promptSession, title string, labels []string) {
 func configureGitHubRepoFlow(p *promptSession) {
 	configureFlow(p, "Generate github-repo", []string{
 		"Application name",
+		"Repository owner",
 		"Visibility",
 		"Description",
 		"Topics (comma-separated)",
@@ -860,6 +877,83 @@ func defaultVCSRepoFor(applicationName string) string {
 	return "emkaytec/" + applicationName
 }
 
+// scopedManifestName combines the GitHub owner and the application name so
+// the same repository name under different owners (e.g. alice/forge and
+// bob/forge) produces distinct metadata.name values and output directories.
+func scopedManifestName(owner, applicationName string) string {
+	normalizedOwner := normalizeOwnerSlug(owner)
+	if normalizedOwner == "" {
+		return applicationName
+	}
+	if strings.HasPrefix(applicationName, normalizedOwner+"-") {
+		return applicationName
+	}
+	return normalizedOwner + "-" + applicationName
+}
+
+// normalizeOwnerSlug lowercases the GitHub owner and replaces any runs of
+// disallowed characters with a single hyphen. It intentionally does not split
+// camelCase the way normalizeApplicationName does — GitHub logins are
+// case-insensitive, so "EmKayTec" should round-trip to "emkaytec" rather than
+// "em-kay-tec".
+func normalizeOwnerSlug(owner string) string {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	previousHyphen := false
+	for _, r := range strings.ToLower(owner) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+			previousHyphen = false
+		default:
+			if b.Len() > 0 && !previousHyphen {
+				b.WriteByte('-')
+				previousHyphen = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// resolveGitHubOwner returns spec.owner from --owner or a prompt. When
+// prompting, the default is the login of the currently authenticated GitHub
+// user (so hitting Enter uses the right identity); if no token is available
+// or the API is unreachable, the prompt falls back to no default.
+func resolveGitHubOwner(ctx context.Context, p *promptSession, flagValue string) (string, error) {
+	if trimmed := strings.TrimSpace(flagValue); trimmed != "" {
+		return trimmed, nil
+	}
+
+	return inputPrompt(p, "Repository owner", currentGitHubLogin(ctx), true)
+}
+
+// currentGitHubLogin fetches the authenticated GitHub user's login. A short
+// timeout keeps slow or unreachable networks from stalling the generator; any
+// failure (missing token, API error, timeout) returns "" so the caller can
+// fall back to an empty default.
+var currentGitHubLogin = func(ctx context.Context) string {
+	client, err := ghapi.NewClientFromEnv()
+	if err != nil {
+		return ""
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	account, err := client.GetAuthenticatedUser(ctx)
+	if err != nil {
+		return ""
+	}
+	return account.Login
+}
+
 func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (string, error) {
 	accountProfile = strings.TrimSpace(accountProfile)
 	accountID = strings.TrimSpace(accountID)
@@ -1073,9 +1167,12 @@ func renderGitHubRepoTemplateWithData(data gitHubRepoTemplateData) string {
 apiVersion: forge/v1
 kind: GitHubRepository
 metadata:
-  # metadata.name is the stable manifest identifier Forge reports on.
+  # metadata.name scopes the manifest identifier to the owner so the same
+  # repository name under a different owner does not collide.
   name: %q
 spec:
+  # spec.owner is the GitHub user or organization that will own the repository.
+  owner: %q
   # spec.name is the GitHub repository name to create or manage.
   name: %q
   # visibility must be either public or private.
@@ -1088,7 +1185,7 @@ spec:
   default_branch: %s
   # branch_protection enables the baseline protected-branch workflow.
   branch_protection: %t
-`, data.ApplicationName, data.ApplicationName, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch, data.BranchProtection)
+`, data.ApplicationName, data.ManifestName, data.Owner, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch, data.BranchProtection)
 }
 
 func renderHCPTFWorkspaceTemplateWithData(data hcpTFWorkspaceTemplateData) string {

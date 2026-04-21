@@ -165,7 +165,7 @@ Both commands build and print a plan first. They default to a dry plan and requi
 
 `forge reconcile remote` currently manages the staged remote kinds directly inside Forge while keeping the package layout ready for a later carve-out back into `anvil`:
 
-- `GitHubRepository` manages the current authenticated owner by default. Set `FORGE_GITHUB_OWNER` when the target repository should live under a different accessible user or organization.
+- `GitHubRepository` reads the target owner from `spec.owner` (a user or organization the authenticated token can manage). `forge manifest generate github-repo` prompts for the owner and defaults to the current GitHub login when `GITHUB_TOKEN` or `GH_TOKEN` is set.
 - `HCPTerraformWorkspace` uses `TF_TOKEN_app_terraform_io` or `TFE_TOKEN`.
 - `AWSIAMProvisioner` uses the ambient AWS CLI session and expects the shared OIDC providers from `forge init aws-oidc` to exist first.
 

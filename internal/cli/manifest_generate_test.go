@@ -21,14 +21,17 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 			name: "github repo",
 			args: []string{
 				"manifest", "generate", "github-repo", "sample-repo",
+				"--owner", "emkaytec",
 				"--visibility", "private",
 				"--default-branch", "main",
 				"--branch-protection",
 			},
-			path: filepath.Join("sample-repo", "github-repo.yaml"),
+			path: filepath.Join("emkaytec-sample-repo", "github-repo.yaml"),
 			snippets: []string{
 				"kind: GitHubRepository",
 				"# visibility must be either public or private.",
+				`name: "emkaytec-sample-repo"`,
+				`owner: "emkaytec"`,
 				`name: "sample-repo"`,
 				"visibility: private",
 				"default_branch: main",
@@ -181,6 +184,7 @@ func TestRunManifestGenerateGitHubRepoSupportsNonInteractiveFlags(t *testing.T) 
 	if err := Run([]string{
 		"manifest", "generate", "github-repo",
 		"--application", "forge",
+		"--owner", "emkaytec",
 		"--visibility", "private",
 		"--description", "Forge CLI repo",
 		"--topic", "platform",
@@ -191,7 +195,7 @@ func TestRunManifestGenerateGitHubRepoSupportsNonInteractiveFlags(t *testing.T) 
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
+	path := filepath.Join(tempDir, "emkaytec-forge", "github-repo.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -199,6 +203,8 @@ func TestRunManifestGenerateGitHubRepoSupportsNonInteractiveFlags(t *testing.T) 
 
 	contents := string(rendered)
 	for _, snippet := range []string{
+		`name: "emkaytec-forge"`,
+		`owner: "emkaytec"`,
 		`name: "forge"`,
 		"visibility: private",
 		`description: "Forge CLI repo"`,
@@ -326,17 +332,23 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
+	// Prevent the owner prompt from hitting the real GitHub API on a dev
+	// machine that happens to have a token configured.
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
-		"forge",           // application name
-		"1",               // visibility: Private (index 1)
-		"Forge CLI repo",  // description
-		"platform",        // topics
-		"",                // default branch (accept default "main")
-		"1",               // enable branch protection: Yes (index 1)
+		"forge",          // application name
+		"emkaytec",       // repository owner
+		"1",              // visibility: Private (index 1)
+		"Forge CLI repo", // description
+		"platform",       // topics
+		"",               // default branch (accept default "main")
+		"1",              // enable branch protection: Yes (index 1)
 	}, "\n") + "\n"))
 	root.SetArgs([]string{"manifest", "generate", "github-repo"})
 
@@ -344,7 +356,7 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
+	path := filepath.Join(tempDir, "emkaytec-forge", "github-repo.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -353,6 +365,8 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 	contents := string(rendered)
 	for _, snippet := range []string{
 		"kind: GitHubRepository",
+		`name: "emkaytec-forge"`,
+		`owner: "emkaytec"`,
 		`name: "forge"`,
 		"visibility: private",
 		`description: "Forge CLI repo"`,
@@ -367,6 +381,10 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 
 	if !strings.Contains(stdout.String(), "Application name:") {
 		t.Fatalf("expected application name prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Repository owner:") {
+		t.Fatalf("expected repository owner prompt, got %q", stdout.String())
 	}
 
 	if !strings.Contains(stdout.String(), "Visibility:") {

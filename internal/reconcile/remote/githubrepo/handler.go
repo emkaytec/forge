@@ -5,7 +5,6 @@ package githubrepo
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -13,8 +12,6 @@ import (
 	"github.com/emkaytec/forge/internal/reconcile"
 	"github.com/emkaytec/forge/pkg/schema"
 )
-
-const ownerEnvVar = "FORGE_GITHUB_OWNER"
 
 type client interface {
 	GetAuthenticatedUser(ctx context.Context) (*ghapi.Account, error)
@@ -71,7 +68,7 @@ func (h *Handler) DescribeChange(ctx context.Context, m *schema.Manifest, _ stri
 		return reconcile.ResourceChange{}, err
 	}
 
-	owner, ownerType, err := resolveOwner(ctx, client)
+	owner, ownerType, err := resolveOwner(ctx, client, spec)
 	if err != nil {
 		return reconcile.ResourceChange{}, err
 	}
@@ -129,7 +126,7 @@ func (h *Handler) Apply(ctx context.Context, change reconcile.ResourceChange, _ 
 		return err
 	}
 
-	owner, ownerType, err := resolveOwner(ctx, client)
+	owner, ownerType, err := resolveOwner(ctx, client, spec)
 	if err != nil {
 		return err
 	}
@@ -206,20 +203,32 @@ func (h *Handler) Apply(ctx context.Context, change reconcile.ResourceChange, _ 
 	return nil
 }
 
-func resolveOwner(ctx context.Context, client client) (string, string, error) {
-	if configured := strings.TrimSpace(os.Getenv(ownerEnvVar)); configured != "" {
-		account, err := client.GetAccount(ctx, configured)
-		if err != nil {
-			return "", "", err
-		}
-		return configured, account.Type, nil
+func resolveOwner(ctx context.Context, client client, spec *schema.GitHubRepoSpec) (string, string, error) {
+	owner := strings.TrimSpace(spec.Owner)
+	if owner == "" {
+		return "", "", fmt.Errorf("spec.owner must not be empty")
 	}
 
-	account, err := client.GetAuthenticatedUser(ctx)
+	account, err := client.GetAccount(ctx, owner)
 	if err != nil {
 		return "", "", err
 	}
-	return account.Login, account.Type, nil
+
+	// User-typed owners route through POST /user/repos, which ignores the
+	// requested owner and creates under the authenticated user. Fail loudly
+	// if those two don't match instead of silently writing to the wrong
+	// account.
+	if account.Type == "User" {
+		authenticated, err := client.GetAuthenticatedUser(ctx)
+		if err != nil {
+			return "", "", err
+		}
+		if !strings.EqualFold(authenticated.Login, owner) {
+			return "", "", fmt.Errorf("spec.owner %q is a user account; only %q can create repositories there", owner, authenticated.Login)
+		}
+	}
+
+	return owner, account.Type, nil
 }
 
 func describeRepositorySettingsDrift(spec *schema.GitHubRepoSpec, repository *ghapi.Repository) []reconcile.DriftField {

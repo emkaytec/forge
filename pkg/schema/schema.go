@@ -38,6 +38,7 @@ type Manifest struct {
 
 // GitHubRepoSpec is the initial GitHub repository schema staged in Forge.
 type GitHubRepoSpec struct {
+	Owner            string   `yaml:"owner"`
 	Name             string   `yaml:"name"`
 	Visibility       string   `yaml:"visibility"`
 	Description      string   `yaml:"description,omitempty"`
@@ -151,6 +152,10 @@ func (m Metadata) Validate() error {
 
 // Validate reports whether the GitHub repository schema is valid.
 func (s *GitHubRepoSpec) Validate() error {
+	if s.Owner == "" {
+		return invalidField("spec.owner", "must not be empty")
+	}
+
 	if s.Name == "" {
 		return invalidField("spec.name", "must not be empty")
 	}

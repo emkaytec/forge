@@ -17,6 +17,7 @@ kind: GitHubRepository
 metadata:
   name: portfolio-repo
 spec:
+  owner: emkaytec
   name: portfolio-repo
   visibility: private
   description: Portfolio-safe example repository
@@ -41,6 +42,9 @@ spec:
 	}
 
 	spec := roundTripped.Spec.(*schema.GitHubRepoSpec)
+	if spec.Owner != "emkaytec" {
+		t.Fatalf("owner = %q, want emkaytec", spec.Owner)
+	}
 	if spec.Visibility != "private" {
 		t.Fatalf("visibility = %q, want private", spec.Visibility)
 	}
@@ -67,6 +71,7 @@ kind: GitHubRepository
 metadata:
   name: portfolio-repo
 spec:
+  owner: emkaytec
   name: portfolio-repo
   visibility: internal
 `))
@@ -76,5 +81,26 @@ spec:
 
 	if !strings.Contains(err.Error(), "spec.visibility") {
 		t.Fatalf("DecodeManifest() error = %v, want spec.visibility validation", err)
+	}
+}
+
+func TestGitHubRepoRejectsMissingOwner(t *testing.T) {
+	t.Parallel()
+
+	_, err := schema.DecodeManifest([]byte(`
+apiVersion: forge/v1
+kind: GitHubRepository
+metadata:
+  name: portfolio-repo
+spec:
+  name: portfolio-repo
+  visibility: private
+`))
+	if err == nil {
+		t.Fatal("DecodeManifest() error = nil, want missing-owner error")
+	}
+
+	if !strings.Contains(err.Error(), "spec.owner") {
+		t.Fatalf("DecodeManifest() error = %v, want spec.owner validation", err)
 	}
 }
