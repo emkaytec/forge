@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,9 +12,9 @@ import (
 )
 
 // DiscoverManifests returns the sorted list of manifest file paths
-// rooted at path. path may be a single manifest file or a directory
-// (directories are scanned non-recursively for .yaml / .yml files,
-// matching the existing forge manifest validate behaviour).
+// rooted at path. path may be a single manifest file or a directory;
+// directories are walked recursively for .yaml / .yml files so each
+// application subdirectory is picked up automatically.
 func DiscoverManifests(path string) ([]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -28,23 +29,26 @@ func DiscoverManifests(path string) ([]string, error) {
 		return []string{path}, nil
 	}
 
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var paths []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	walkErr := filepath.WalkDir(path, func(entryPath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-
-		name := entry.Name()
-		if !IsManifestFile(name) {
-			continue
+		if d.IsDir() {
+			// Skip hidden directories (e.g. .git, .terraform) so the
+			// walker does not traverse version-control or tooling trees.
+			if entryPath != path && strings.HasPrefix(d.Name(), ".") {
+				return fs.SkipDir
+			}
+			return nil
 		}
-
-		paths = append(paths, filepath.Join(path, name))
+		if IsManifestFile(entryPath) {
+			paths = append(paths, entryPath)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
 	}
 
 	sort.Strings(paths)

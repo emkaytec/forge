@@ -23,12 +23,15 @@ import (
 func RenderPlan(w io.Writer, plan *Plan) {
 	fmt.Fprintln(w, ui.RenderHeading(w, fmt.Sprintf("Plan (%s)", plan.Target)))
 
-	if len(plan.Changes) == 0 {
-		fmt.Fprintln(w, "  "+ui.RenderMuted(w, "no changes planned"))
-	} else {
+	switch {
+	case len(plan.Changes) > 0:
 		for _, change := range plan.Changes {
 			writeChange(w, change)
 		}
+	case len(plan.LoadErrors) > 0:
+		fmt.Fprintln(w, "  "+ui.RenderMuted(w, "plan not built — see Errors"))
+	default:
+		fmt.Fprintln(w, "  "+ui.RenderMuted(w, "no changes planned"))
 	}
 
 	if len(plan.Skipped) > 0 {

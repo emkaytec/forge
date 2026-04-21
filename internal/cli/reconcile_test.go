@@ -96,7 +96,7 @@ func TestRunReconcileRemoteHelpShowsUsage(t *testing.T) {
 	}
 
 	out := stdout.String()
-	if !strings.Contains(out, "forge reconcile remote <path>") {
+	if !strings.Contains(out, "forge reconcile remote [path]") {
 		t.Fatalf("expected remote usage path, got %q", out)
 	}
 	if !strings.Contains(out, "--apply") {
