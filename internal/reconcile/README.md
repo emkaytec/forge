@@ -8,4 +8,4 @@ Package docs, including idempotency guarantees, compatibility filtering, and dri
 - **Remote** (`remote/`) — dispatcher plus one subpackage per remote-capable kind. The current embedded engine manages `GitHubRepository`, `HCPTerraformWorkspace`, and `AWSIAMProvisioner` directly inside Forge while keeping the package layout ready for a later move into `anvil`.
 - **Local** (`local/`) — dispatcher plus the `launchagent` handler, the first workstation-only kind. Renders launchd plist XML, diffs against `$HOME/Library/LaunchAgents/<label>.plist`, writes atomically, and reloads via `launchctl`.
 
-The Cobra command shell lives in [`../reconcilecmd`](../reconcilecmd). `internal/reconcile/` stays focused on the reusable engine contract (`BuildPlan`, `Executor`, `RenderPlan`, `RenderApplyResult`) so local and remote executor packages can depend on it without creating import cycles.
+The cobra command shell lives in [`../reconcilecmd`](../reconcilecmd). `internal/reconcile/` stays focused on the reusable engine contract (`BuildPlan`, `Executor`, `RenderPlan`, `RenderApplyResult`) while `reconcilecmd` composes those pieces into `forge reconcile local|remote`.

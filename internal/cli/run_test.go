@@ -329,12 +329,8 @@ func TestRunWithHelpListsReconcileGroup(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "Reconcile") {
-		t.Fatalf("expected reconcile group in help output, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "reconcile") {
-		t.Fatalf("expected reconcile command in help output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "Reconcile\n  reconcile") {
+		t.Fatalf("expected reconcile group contents in help output, got %q", stdout.String())
 	}
 }
 

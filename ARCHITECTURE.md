@@ -51,7 +51,7 @@ Each operator-facing concern is a **command domain** — a directory under `inte
 - `initcmd` for `forge init ...`
 - `reconcilecmd` for `forge reconcile local|remote`
 
-`internal/reconcile/` remains the shared engine package underneath `reconcilecmd`. Keeping the command shell separate avoids an import cycle with the local and remote executor packages while still preserving a later carve-out path into `anvil`.
+`internal/reconcile/` remains the shared planning layer and per-target executor package underneath `reconcilecmd`. Keeping the operator-facing command shell separate avoids an import cycle with the local and remote executor packages while still preserving a later carve-out path into `anvil`. The remaining reserved domain today is `local`.
 
 ### Registration pattern
 
