@@ -6,10 +6,11 @@
 // both reconcile targets share the front half — discovery, decode,
 // validation, compatibility filtering, and plan construction — and
 // swap executors underneath. Forge owns the operator CLI and target
-// selection. Remote reconciliation is a shell around the cloud
-// runtime boundary that will later live in anvil; local
-// reconciliation hosts workstation-only handlers (LaunchAgent first)
-// because those do not have a home in anvil.
+// selection. Remote reconciliation runs through an embedded engine
+// today, but the package split keeps that runtime easy to carve back
+// out into anvil later. Local reconciliation hosts workstation-only
+// handlers (LaunchAgent first) because those do not have a home in
+// anvil.
 //
 // # Idempotency guarantees
 //
@@ -36,7 +37,12 @@
 //     $HOME/Library/LaunchAgents/<label>.plist is decoded and compared
 //     field-by-field with the desired LaunchAgentSpec. Unknown live
 //     fields are ignored (the staged schema is deliberately narrow).
-//   - remote kinds: stubbed in MK-9. Handlers report ActionNoOp and
-//     ErrNotImplemented on Apply. Per-kind subpackages under
-//     remote/ are the seam anvil will fill in later.
+//   - GitHubRepository: visibility, description, default branch,
+//     optional topics, and a boolean baseline branch-protection
+//     toggle on the managed default branch.
+//   - HCPTerraformWorkspace: execution mode, optional Terraform
+//     version, optional project binding, and optional VCS repository
+//     identifier.
+//   - AWSIAMProvisioner: OIDC trust policy plus optional exact
+//     managed-policy attachments for the role.
 package reconcile

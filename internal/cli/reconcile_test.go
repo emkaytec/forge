@@ -88,21 +88,18 @@ func TestRunReconcileLocalStrictRejectsSkipped(t *testing.T) {
 	}
 }
 
-func TestRunReconcileRemoteDryRunRendersPlan(t *testing.T) {
-	dir := t.TempDir()
-	writeManifestFile(t, dir, "repo.yaml", githubRepoManifest)
-
+func TestRunReconcileRemoteHelpShowsUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"reconcile", "remote", "--dry-run", dir}, &stdout, &stderr, "dev"); err != nil {
+	if err := Run([]string{"reconcile", "remote", "--help"}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
 	out := stdout.String()
-	if !strings.Contains(out, "Plan (remote)") {
-		t.Fatalf("expected remote plan heading, got %q", out)
+	if !strings.Contains(out, "forge reconcile remote <path>") {
+		t.Fatalf("expected remote usage path, got %q", out)
 	}
-	if !strings.Contains(out, "GitHubRepository sample-repo") {
-		t.Fatalf("expected GitHubRepository in plan, got %q", out)
+	if !strings.Contains(out, "--apply") {
+		t.Fatalf("expected remote apply flag in help output, got %q", out)
 	}
 }
 

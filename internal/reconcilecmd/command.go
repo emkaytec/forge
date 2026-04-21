@@ -1,15 +1,22 @@
 package reconcilecmd
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/emkaytec/forge/internal/reconcile"
+	"github.com/spf13/cobra"
+)
 
 // GroupID is the cobra group that hosts reconcile subcommands in help output.
 const GroupID = "reconcile"
+
+type commandExecutor interface {
+	reconcile.Executor
+}
 
 // Command returns the configured reconcile command group.
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "reconcile",
-		Short:   "Reconcile Forge manifests against their execution targets",
+		Short:   "Plan and apply manifest reconciliation by execution target",
 		GroupID: GroupID,
 	}
 
