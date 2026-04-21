@@ -138,6 +138,20 @@ ansible:
 
 The Ansible repo path can be configured with `ansible.repo_path` in the config file above or with `FORGE_ANSIBLE_REPO`. `FORGE_ANSIBLE_INVENTORY` and `FORGE_ANSIBLE_PLAYBOOK` override the default inventory and playbook paths when needed.
 
+## Init Workflows
+
+Forge now ships an `init` command domain for one-time bootstrap work that is easier to do imperatively than declaratively.
+
+- `forge init aws-oidc`
+- `forge init aws-oidc --account-id 123456789012`
+
+`forge init aws-oidc` uses the ambient AWS session to resolve the target account when `--account-id` is omitted, prints that account ID at the start of the run, and then ensures these shared IAM OIDC providers exist:
+
+- GitHub Actions at `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`
+- HCP Terraform at `https://app.terraform.io` with audience `aws.workload.identity`
+
+The command is idempotent. Re-running it reports whether each provider was created or already existed. It only bootstraps the identity providers; IAM roles and attached policies remain managed through `AWSIAMProvisioner` manifests.
+
 ## CI/CD
 
 Forge publishes CLI artifacts through GitHub Actions workflows under `.github/workflows/`.
