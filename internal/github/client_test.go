@@ -1,31 +1,62 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// observedTokenServer spins up an httptest server that answers one
-// GET /user call and records the Authorization header it received so
-// tests can confirm which token landed on the wire.
-func observedTokenServer(t *testing.T) (server *httptest.Server, got *string) {
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func jsonResponse(t *testing.T, statusCode int, body any) *http.Response {
 	t.Helper()
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	return &http.Response{
+		StatusCode: statusCode,
+		Status:     fmt.Sprintf("%d %s", statusCode, http.StatusText(statusCode)),
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(payload)),
+	}
+}
+
+// observedTokenClient answers one GET /user call and records the
+// Authorization header it received so tests can confirm which token
+// landed on the wire.
+func observedTokenClient(t *testing.T) (client *http.Client, got *string) {
+	t.Helper()
+
 	var header string
 	got = &header
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
-		header = r.Header.Get("Authorization")
-		_ = json.NewEncoder(w).Encode(Account{Login: "observer", Type: "User"})
-	})
+	client = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %q, want GET", r.Method)
+			}
+			if r.URL.Path != "/user" {
+				t.Fatalf("path = %q, want /user", r.URL.Path)
+			}
 
-	server = httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-	return server, got
+			header = r.Header.Get("Authorization")
+			return jsonResponse(t, http.StatusOK, Account{Login: "observer", Type: "User"}), nil
+		}),
+	}
+
+	return client, got
 }
 
 func TestNewClientFromEnvPrefersEnvOverGH(t *testing.T) {
@@ -44,8 +75,9 @@ func TestNewClientFromEnvPrefersEnvOverGH(t *testing.T) {
 	}
 
 	// Also confirm it actually lands on outgoing requests.
-	server, authHeader := observedTokenServer(t)
-	client.baseURL = server.URL
+	httpClient, authHeader := observedTokenClient(t)
+	client.baseURL = "https://example.test"
+	client.httpClient = httpClient
 	if _, err := client.GetAuthenticatedUser(context.Background()); err != nil {
 		t.Fatalf("GetAuthenticatedUser() error = %v", err)
 	}
@@ -66,8 +98,9 @@ func TestNewClientFromEnvFallsBackToGHCLI(t *testing.T) {
 		t.Fatalf("NewClientFromEnv() error = %v", err)
 	}
 
-	server, authHeader := observedTokenServer(t)
-	client.baseURL = server.URL
+	httpClient, authHeader := observedTokenClient(t)
+	client.baseURL = "https://example.test"
+	client.httpClient = httpClient
 	if _, err := client.GetAuthenticatedUser(context.Background()); err != nil {
 		t.Fatalf("GetAuthenticatedUser() error = %v", err)
 	}
@@ -109,20 +142,26 @@ func TestNewClientFromEnvPrefersGHTokenWhenOnlyGHTokenSet(t *testing.T) {
 }
 
 func TestListUserOrganizationsReturnsAccounts(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/user/orgs", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.RawQuery != "per_page=100" {
-			t.Errorf("query = %q, want per_page=100", r.URL.RawQuery)
-		}
-		_ = json.NewEncoder(w).Encode([]Account{
-			{Login: "emkaytec", Type: "Organization"},
-			{Login: "some-other-org", Type: "Organization"},
-		})
-	})
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %q, want GET", r.Method)
+			}
+			if r.URL.Path != "/user/orgs" {
+				t.Fatalf("path = %q, want /user/orgs", r.URL.Path)
+			}
+			if r.URL.RawQuery != "per_page=100" {
+				t.Errorf("query = %q, want per_page=100", r.URL.RawQuery)
+			}
 
-	client := NewClient(server.URL, "test-token", nil)
+			return jsonResponse(t, http.StatusOK, []Account{
+				{Login: "emkaytec", Type: "Organization"},
+				{Login: "some-other-org", Type: "Organization"},
+			}), nil
+		}),
+	}
+
+	client := NewClient("https://example.test", "test-token", httpClient)
 	orgs, err := client.ListUserOrganizations(context.Background())
 	if err != nil {
 		t.Fatalf("ListUserOrganizations() error = %v", err)
