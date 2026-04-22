@@ -88,14 +88,20 @@ go build -o bin/forge ./cmd/forge
 
 Forge now ships a `manifest` command domain for starter manifest authoring and schema validation.
 
-- `forge manifest compose <blueprint> [name]`
+- `forge manifest compose <blueprint> [application]`
 - `forge manifest generate github-repo <name>`
 - `forge manifest generate hcp-tf-workspace <vcs-repo>`
 - `forge manifest generate aws-iam-provisioner <vcs-repo>`
 - `forge manifest generate launch-agent <name>`
 - `forge manifest validate <file-or-directory>`
 
-`forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose ...` is reserved for higher-level blueprints that will emit several primitive manifests from one prompt flow.
+`forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose ...` is the higher-level authoring layer for workflows that need to emit several primitive manifests from one prompt flow.
+
+`forge manifest compose terraform-github-repo` starts with the same repo inputs as `forge manifest generate github-repo`, then prompts for one or more deployment environments, the AWS account for each selected environment, and the shared HCP Terraform plus IAM settings needed to fan out a full repo stack. It writes:
+
+- `<application>/github-repo.yaml`
+- `<application>/hcp-tf-workspace-<env>.yml` for each selected environment
+- `<application>/aws-iam-provisioner-<env>-gha.yaml` and `<application>/aws-iam-provisioner-<env>-tfc.yaml` for each selected environment
 
 Generated manifests write `<directory>/<resource>.yaml` under the current directory by default. `github-repo` uses the application name for the shared directory while keeping `metadata.name` owner-scoped. `hcp-tf-workspace` writes `hcp-tf-workspace-<env>.yml`, uses the repository name for the shared directory, and keeps `metadata.name` owner-scoped. `aws-iam-provisioner` uses the repository name for the shared directory, always writes both `aws-iam-provisioner-<env>-gha.yaml` and `aws-iam-provisioner-<env>-tfc.yaml`, keeps `metadata.name` owner-scoped, and uses the repository name for `spec.name`. Pass `--dir <relative-path>` to place generated files under a different relative directory.
 
