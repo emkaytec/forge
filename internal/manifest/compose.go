@@ -35,14 +35,29 @@ func newComposeCommand() *cobra.Command {
 
 Blueprints are the authoring layer for stack-style workflows that share inputs
 across several generated manifests. The generated output remains atomic so the
-individual manifest files stay easy to review and reconcile.`),
+individual manifest files stay easy to review and reconcile.
+
+Supported blueprints:
+  terraform-github-repo generates github-repo, hcp-tf-workspace, and
+  aws-iam-provisioner manifests from one repo-centered prompt flow.`),
 		Example: strings.Join([]string{
 			"  forge manifest compose terraform-github-repo forge",
 			"  forge manifest compose terraform-github-repo --application forge --owner emkaytec --environment dev --account-id dev=123456789012",
 			"  forge manifest compose terraform-github-repo forge --environment dev --environment prod --account-profile dev=emkaytec-dev --account-profile prod=emkaytec-prod",
 		}, "\n"),
-		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+
+			if strings.EqualFold(strings.TrimSpace(args[0]), "help") {
+				return cmd.Help()
+			}
+
+			if err := cobra.MaximumNArgs(2)(cmd, args); err != nil {
+				return err
+			}
+
 			if err := validateOutputDir(options.outputDir); err != nil {
 				return err
 			}
