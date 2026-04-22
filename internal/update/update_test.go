@@ -8,13 +8,40 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func responseWithBody(statusCode int, body []byte) *http.Response {
+	return &http.Response{
+		StatusCode: statusCode,
+		Status:     fmt.Sprintf("%d %s", statusCode, http.StatusText(statusCode)),
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+}
+
+func jsonResponse(t *testing.T, statusCode int, body any) *http.Response {
+	t.Helper()
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	return responseWithBody(statusCode, payload)
+}
 
 func TestResolvePlatform(t *testing.T) {
 	t.Parallel()
@@ -51,15 +78,14 @@ func TestVerifyChecksumMismatch(t *testing.T) {
 func TestUpdaterRunCheckOnly(t *testing.T) {
 	t.Parallel()
 
-	server, executablePath, originalContents := newTestUpdateServer(t, "v0.2.0", map[string][]byte{
+	httpClient, apiBaseURL, executablePath, originalContents := newTestUpdateClient(t, "v0.2.0", map[string][]byte{
 		"forge-darwin-arm64.tar.gz": buildTarGz(t, map[string]string{"forge": "new-binary"}),
 	})
-	defer server.Close()
 
 	updater := New(Config{
 		CurrentVersion: "v0.1.0",
-		HTTPClient:     server.Client(),
-		APIBaseURL:     server.URL,
+		HTTPClient:     httpClient,
+		APIBaseURL:     apiBaseURL,
 		ExecutablePath: executablePath,
 		GOOS:           "darwin",
 		GOARCH:         "arm64",
@@ -89,15 +115,14 @@ func TestUpdaterRunCheckOnly(t *testing.T) {
 func TestUpdaterRunInstallsRequestedVersion(t *testing.T) {
 	t.Parallel()
 
-	server, executablePath, _ := newTestUpdateServer(t, "v0.2.0", map[string][]byte{
+	httpClient, apiBaseURL, executablePath, _ := newTestUpdateClient(t, "v0.2.0", map[string][]byte{
 		"forge-darwin-arm64.tar.gz": buildTarGz(t, map[string]string{"forge": "updated-binary"}),
 	})
-	defer server.Close()
 
 	updater := New(Config{
 		CurrentVersion: "v0.1.0",
-		HTTPClient:     server.Client(),
-		APIBaseURL:     server.URL,
+		HTTPClient:     httpClient,
+		APIBaseURL:     apiBaseURL,
 		ExecutablePath: executablePath,
 		GOOS:           "darwin",
 		GOARCH:         "arm64",
@@ -123,15 +148,14 @@ func TestUpdaterRunInstallsRequestedVersion(t *testing.T) {
 func TestUpdaterRunAlreadyCurrent(t *testing.T) {
 	t.Parallel()
 
-	server, executablePath, originalContents := newTestUpdateServer(t, "v0.2.0", map[string][]byte{
+	httpClient, apiBaseURL, executablePath, originalContents := newTestUpdateClient(t, "v0.2.0", map[string][]byte{
 		"forge-darwin-arm64.tar.gz": buildTarGz(t, map[string]string{"forge": "updated-binary"}),
 	})
-	defer server.Close()
 
 	updater := New(Config{
 		CurrentVersion: "v0.2.0",
-		HTTPClient:     server.Client(),
-		APIBaseURL:     server.URL,
+		HTTPClient:     httpClient,
+		APIBaseURL:     apiBaseURL,
 		ExecutablePath: executablePath,
 		GOOS:           "darwin",
 		GOARCH:         "arm64",
@@ -160,10 +184,9 @@ func TestUpdaterRunAlreadyCurrent(t *testing.T) {
 func TestUpdaterRunPermissionFailure(t *testing.T) {
 	t.Parallel()
 
-	server, executablePath, _ := newTestUpdateServer(t, "v0.2.0", map[string][]byte{
+	httpClient, apiBaseURL, executablePath, _ := newTestUpdateClient(t, "v0.2.0", map[string][]byte{
 		"forge-darwin-arm64.tar.gz": buildTarGz(t, map[string]string{"forge": "updated-binary"}),
 	})
-	defer server.Close()
 
 	executableDir := filepath.Dir(executablePath)
 	if err := os.Chmod(executableDir, 0o555); err != nil {
@@ -173,8 +196,8 @@ func TestUpdaterRunPermissionFailure(t *testing.T) {
 
 	updater := New(Config{
 		CurrentVersion: "v0.1.0",
-		HTTPClient:     server.Client(),
-		APIBaseURL:     server.URL,
+		HTTPClient:     httpClient,
+		APIBaseURL:     apiBaseURL,
 		ExecutablePath: executablePath,
 		GOOS:           "darwin",
 		GOARCH:         "arm64",
@@ -189,15 +212,16 @@ func TestUpdaterRunPermissionFailure(t *testing.T) {
 func TestUpdaterRunRequestedVersionNotFound(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
-	defer server.Close()
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return responseWithBody(http.StatusNotFound, nil), nil
+		}),
+	}
 
 	updater := New(Config{
 		CurrentVersion: "v0.1.0",
-		HTTPClient:     server.Client(),
-		APIBaseURL:     server.URL,
+		HTTPClient:     httpClient,
+		APIBaseURL:     "https://updates.example",
 		ExecutablePath: filepath.Join(t.TempDir(), "forge"),
 		GOOS:           "darwin",
 		GOARCH:         "arm64",
@@ -209,7 +233,7 @@ func TestUpdaterRunRequestedVersionNotFound(t *testing.T) {
 	}
 }
 
-func newTestUpdateServer(t *testing.T, tag string, assets map[string][]byte) (*httptest.Server, string, string) {
+func newTestUpdateClient(t *testing.T, tag string, assets map[string][]byte) (*http.Client, string, string, string) {
 	t.Helper()
 
 	tempDir := t.TempDir()
@@ -226,38 +250,37 @@ func newTestUpdateServer(t *testing.T, tag string, assets map[string][]byte) (*h
 	}
 	assets[checksumAssetName] = []byte(strings.Join(checksumLines, "\n") + "\n")
 
-	var serverURL string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/releases/latest", "/releases/tags/" + tag:
-			releaseAssets := make([]releaseAsset, 0, len(assets))
-			for name := range assets {
-				releaseAssets = append(releaseAssets, releaseAsset{
-					Name:               name,
-					BrowserDownloadURL: serverURL + "/downloads/" + name,
-				})
-			}
-			if err := json.NewEncoder(w).Encode(release{
-				TagName: tag,
-				Assets:  releaseAssets,
-			}); err != nil {
-				t.Fatalf("encode release: %v", err)
-			}
-		default:
-			name := strings.TrimPrefix(r.URL.Path, "/downloads/")
-			contents, ok := assets[name]
-			if !ok {
-				http.NotFound(w, r)
-				return
-			}
-			if _, err := w.Write(contents); err != nil {
-				t.Fatalf("write asset: %v", err)
-			}
-		}
-	}))
-	serverURL = server.URL
+	const apiBaseURL = "https://updates.example"
 
-	return server, executablePath, originalContents
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			switch r.URL.Path {
+			case "/releases/latest", "/releases/tags/" + tag:
+				releaseAssets := make([]releaseAsset, 0, len(assets))
+				for name := range assets {
+					releaseAssets = append(releaseAssets, releaseAsset{
+						Name:               name,
+						BrowserDownloadURL: apiBaseURL + "/downloads/" + name,
+					})
+				}
+
+				return jsonResponse(t, http.StatusOK, release{
+					TagName: tag,
+					Assets:  releaseAssets,
+				}), nil
+			default:
+				name := strings.TrimPrefix(r.URL.Path, "/downloads/")
+				contents, ok := assets[name]
+				if !ok {
+					return responseWithBody(http.StatusNotFound, nil), nil
+				}
+
+				return responseWithBody(http.StatusOK, contents), nil
+			}
+		}),
+	}
+
+	return httpClient, apiBaseURL, executablePath, originalContents
 }
 
 func buildTarGz(t *testing.T, files map[string]string) []byte {
