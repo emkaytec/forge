@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/emkaytec/forge/internal/aws/accounts"
 )
 
 func stubMemberships(t *testing.T, m ghMemberships) {
@@ -135,5 +137,103 @@ func TestScopedManifestNameCombinesOwnerAndApplication(t *testing.T) {
 				t.Fatalf("scopedManifestName(%q, %q) = %q, want %q", tc.owner, tc.application, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestManifestNameFromVCSRepo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		vcsRepo string
+		want    string
+	}{
+		{"owner and repo", "emkaytec/forge", "emkaytec-forge"},
+		{"normalizes owner and repo", "EmKayTec/ForgeApp", "emkaytec-forge-app"},
+		{"preserves hyphenated repo", "emkaytec/test-one", "emkaytec-test-one"},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := manifestNameFromVCSRepo(tc.vcsRepo)
+			if err != nil {
+				t.Fatalf("manifestNameFromVCSRepo() error = %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("manifestNameFromVCSRepo(%q) = %q, want %q", tc.vcsRepo, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkspaceNameFromVCSRepoUsesRepoSegment(t *testing.T) {
+	t.Parallel()
+
+	got, err := workspaceNameFromVCSRepo("emkaytec/test-one")
+	if err != nil {
+		t.Fatalf("workspaceNameFromVCSRepo() error = %v", err)
+	}
+	if got != "test-one" {
+		t.Fatalf("workspaceNameFromVCSRepo() = %q, want test-one", got)
+	}
+}
+
+func TestPrioritizeAWSProfilesMovesEnvironmentMatchesToFront(t *testing.T) {
+	t.Parallel()
+
+	profiles := []accounts.Profile{
+		{Name: "default", AccountID: "000000000000"},
+		{Name: "emkaytec-pre", AccountID: "222222222222"},
+		{Name: "emkaytec-dev", AccountID: "111111111111"},
+		{Name: "emkaytec-prod", AccountID: "333333333333"},
+	}
+
+	ordered, defaultIndex := prioritizeAWSProfiles(profiles, "dev")
+	if defaultIndex != 0 {
+		t.Fatalf("defaultIndex = %d, want 0", defaultIndex)
+	}
+
+	got := []string{
+		ordered[0].Name,
+		ordered[1].Name,
+		ordered[2].Name,
+		ordered[3].Name,
+	}
+	want := []string{"emkaytec-dev", "default", "emkaytec-pre", "emkaytec-prod"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ordered[%d] = %q, want %q (full order: %#v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestApplicationNameFromVCSRepoUsesRepoSegment(t *testing.T) {
+	t.Parallel()
+
+	got, err := applicationNameFromVCSRepo("emkaytec/ForgeApp")
+	if err != nil {
+		t.Fatalf("applicationNameFromVCSRepo() error = %v", err)
+	}
+	if got != "forge-app" {
+		t.Fatalf("applicationNameFromVCSRepo() = %q, want forge-app", got)
+	}
+}
+
+func TestDefaultAWSIAMProvisionerTargets(t *testing.T) {
+	t.Parallel()
+
+	got, err := defaultAWSIAMProvisionerTargets("emkaytec/forge", "dev")
+	if err != nil {
+		t.Fatalf("defaultAWSIAMProvisionerTargets() error = %v", err)
+	}
+
+	if got["github-actions"] != "emkaytec/forge" {
+		t.Fatalf("github target = %q, want emkaytec/forge", got["github-actions"])
+	}
+	if got["hcp-terraform"] != "emkaytec/*/forge-dev" {
+		t.Fatalf("hcp target = %q, want emkaytec/*/forge-dev", got["hcp-terraform"])
 	}
 }

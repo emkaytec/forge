@@ -90,14 +90,14 @@ Forge now ships a `manifest` command domain for starter manifest authoring and s
 
 - `forge manifest compose <blueprint> [name]`
 - `forge manifest generate github-repo <name>`
-- `forge manifest generate hcp-tf-workspace <name>`
-- `forge manifest generate aws-iam-provisioner <name>`
+- `forge manifest generate hcp-tf-workspace <vcs-repo>`
+- `forge manifest generate aws-iam-provisioner <vcs-repo>`
 - `forge manifest generate launch-agent <name>`
 - `forge manifest validate <file-or-directory>`
 
 `forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose ...` is reserved for higher-level blueprints that will emit several primitive manifests from one prompt flow.
 
-Generated manifests write `<name>.yaml` into the current directory by default. Pass `--dir <relative-path>` to place the generated file under a different relative directory.
+Generated manifests write `<directory>/<resource>.yaml` under the current directory by default. `github-repo` uses the application name for the shared directory while keeping `metadata.name` owner-scoped. `hcp-tf-workspace` writes `hcp-tf-workspace-<env>.yml`, uses the repository name for the shared directory, and keeps `metadata.name` owner-scoped. `aws-iam-provisioner` uses the repository name for the shared directory, always writes both `aws-iam-provisioner-<env>-gha.yaml` and `aws-iam-provisioner-<env>-tfc.yaml`, keeps `metadata.name` owner-scoped, and uses the repository name for `spec.name`. Pass `--dir <relative-path>` to place generated files under a different relative directory.
 
 The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
 
