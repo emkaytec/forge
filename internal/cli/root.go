@@ -200,8 +200,6 @@ func writeAvailableCommands(w io.Writer, cmd *cobra.Command, colWidth int) {
 
 	commands := availableUngroupedCommands(cmd)
 	if len(commands) == 0 {
-		fmt.Fprintln(w, ui.RenderHeading(w, "Commands"))
-		fmt.Fprintln(w, "  (no commands registered)")
 		return
 	}
 

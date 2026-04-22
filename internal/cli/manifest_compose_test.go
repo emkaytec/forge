@@ -275,6 +275,56 @@ func TestRunManifestComposeHelpDescribesBlueprints(t *testing.T) {
 		t.Fatalf("expected compose example, got %q", stdout.String())
 	}
 
+	if !strings.Contains(stdout.String(), "Supported blueprints:") {
+		t.Fatalf("expected supported blueprints section, got %q", stdout.String())
+	}
+
+	if strings.Contains(stdout.String(), "(no commands registered)") {
+		t.Fatalf("did not expect empty commands section, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestComposeWithoutBlueprintShowsHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"manifest", "compose"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "forge manifest compose [blueprint] [application]") {
+		t.Fatalf("expected compose usage path, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "terraform-github-repo") {
+		t.Fatalf("expected supported blueprint in help output, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestComposeHelpAliasShowsHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"manifest", "compose", "help"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "forge manifest compose [blueprint] [application]") {
+		t.Fatalf("expected compose usage path, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Supported blueprints:") {
+		t.Fatalf("expected supported blueprints section, got %q", stdout.String())
+	}
+
 	if stderr.Len() != 0 {
 		t.Fatalf("expected no stderr output, got %q", stderr.String())
 	}
