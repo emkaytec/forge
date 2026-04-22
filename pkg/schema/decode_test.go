@@ -2,6 +2,7 @@ package schema_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/emkaytec/forge/pkg/schema"
@@ -53,14 +54,23 @@ metadata:
   name: shared-workspace
 spec:
   name: shared-workspace
+  environment: dev
   organization: emkaytec
+  account_id: "123456789012"
   execution_mode: remote
 `,
 			assert: func(t *testing.T, manifest *schema.Manifest) {
 				t.Helper()
 
-				if _, ok := manifest.Spec.(*schema.HCPTFWorkspaceSpec); !ok {
+				spec, ok := manifest.Spec.(*schema.HCPTFWorkspaceSpec)
+				if !ok {
 					t.Fatalf("spec type = %T, want *schema.HCPTFWorkspaceSpec", manifest.Spec)
+				}
+				if spec.Environment != "dev" {
+					t.Fatalf("environment = %q, want dev", spec.Environment)
+				}
+				if spec.AccountID != "123456789012" {
+					t.Fatalf("account_id = %q, want 123456789012", spec.AccountID)
 				}
 			},
 		},
@@ -170,5 +180,28 @@ spec:
 	var unsupported *schema.UnsupportedKindError
 	if !errors.As(err, &unsupported) {
 		t.Fatalf("DecodeManifest() error = %v, want UnsupportedKindError", err)
+	}
+}
+
+func TestDecodeManifestRejectsRemovedGitHubBranchProtectionField(t *testing.T) {
+	t.Parallel()
+
+	_, err := schema.DecodeManifest([]byte(`
+apiVersion: forge/v1
+kind: GitHubRepository
+metadata:
+  name: sample-repo
+spec:
+  owner: emkaytec
+  name: sample-repo
+  visibility: private
+  branch_protection: true
+`))
+	if err == nil {
+		t.Fatal("DecodeManifest() error = nil, want unknown-field error")
+	}
+
+	if !strings.Contains(err.Error(), "branch_protection") {
+		t.Fatalf("DecodeManifest() error = %v, want branch_protection in message", err)
 	}
 }

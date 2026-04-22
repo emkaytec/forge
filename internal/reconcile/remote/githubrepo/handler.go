@@ -21,9 +21,6 @@ type client interface {
 	CreateUserRepository(ctx context.Context, request ghapi.CreateRepositoryRequest) (*ghapi.Repository, error)
 	UpdateRepository(ctx context.Context, owner string, repo string, request ghapi.UpdateRepositoryRequest) (*ghapi.Repository, error)
 	ReplaceTopics(ctx context.Context, owner string, repo string, topics []string) error
-	GetBranchProtection(ctx context.Context, owner string, repo string, branch string) (*ghapi.BranchProtection, error)
-	UpdateBranchProtection(ctx context.Context, owner string, repo string, branch string, request map[string]any) error
-	DeleteBranchProtection(ctx context.Context, owner string, repo string, branch string) error
 }
 
 // Handler implements the GitHubRepository remote handler contract.
@@ -90,18 +87,6 @@ func (h *Handler) DescribeChange(ctx context.Context, m *schema.Manifest, _ stri
 
 	change.Drift = append(change.Drift, describeRepositorySettingsDrift(spec, repository)...)
 	change.Drift = append(change.Drift, describeTopicsDrift(spec, repository)...)
-
-	protected, err := isBranchProtected(ctx, client, owner, spec.Name, spec.DefaultBranch)
-	if err != nil {
-		return reconcile.ResourceChange{}, err
-	}
-	if spec.BranchProtection != protected {
-		change.Drift = append(change.Drift, reconcile.DriftField{
-			Path:     "spec.branch_protection",
-			Desired:  boolString(spec.BranchProtection),
-			Observed: boolString(protected),
-		})
-	}
 
 	if len(change.Drift) == 0 {
 		change.Action = reconcile.ActionNoOp
@@ -181,21 +166,6 @@ func (h *Handler) Apply(ctx context.Context, change reconcile.ResourceChange, _ 
 		}
 	}
 
-	protected, err := isBranchProtected(ctx, client, owner, spec.Name, spec.DefaultBranch)
-	if err != nil {
-		return err
-	}
-	if spec.BranchProtection && !protected {
-		if err := client.UpdateBranchProtection(ctx, owner, spec.Name, spec.DefaultBranch, baselineBranchProtectionRequest()); err != nil {
-			return err
-		}
-	}
-	if !spec.BranchProtection && protected {
-		if err := client.DeleteBranchProtection(ctx, owner, spec.Name, spec.DefaultBranch); err != nil && !ghapi.IsNotFound(err) {
-			return err
-		}
-	}
-
 	if created {
 		return nil
 	}
@@ -271,18 +241,6 @@ func describeTopicsDrift(spec *schema.GitHubRepoSpec, repository *ghapi.Reposito
 	}}
 }
 
-func isBranchProtected(ctx context.Context, client client, owner, repo, branch string) (bool, error) {
-	_, err := client.GetBranchProtection(ctx, owner, repo, branch)
-	switch {
-	case err == nil:
-		return true, nil
-	case ghapi.IsNotFound(err):
-		return false, nil
-	default:
-		return false, err
-	}
-}
-
 func equalTopics(desired, current []string) bool {
 	normalizedDesired := normalizeTopics(desired)
 	normalizedCurrent := normalizeTopics(current)
@@ -323,32 +281,6 @@ func stringPtr(value string) *string {
 	return &value
 }
 
-func baselineBranchProtectionRequest() map[string]any {
-	return map[string]any{
-		"required_status_checks": nil,
-		"enforce_admins":         false,
-		"required_pull_request_reviews": map[string]any{
-			"dismiss_stale_reviews":           true,
-			"require_code_owner_reviews":      false,
-			"required_approving_review_count": 1,
-		},
-		"restrictions":                     nil,
-		"allow_force_pushes":               false,
-		"allow_deletions":                  false,
-		"block_creations":                  false,
-		"required_conversation_resolution": true,
-		"lock_branch":                      false,
-		"allow_fork_syncing":               false,
-	}
-}
-
 func reconcileUnexpectedSpecError(kind string, spec any) error {
 	return fmt.Errorf("%s: unexpected spec type %T", kind, spec)
-}
-
-func boolString(value bool) string {
-	if value {
-		return "true"
-	}
-	return "false"
 }

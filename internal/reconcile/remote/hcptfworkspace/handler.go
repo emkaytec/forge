@@ -17,6 +17,9 @@ type client interface {
 	CreateWorkspace(ctx context.Context, organization string, name string, request hcpapi.WorkspaceRequest) (*hcpapi.Workspace, error)
 	UpdateWorkspace(ctx context.Context, workspaceID string, request hcpapi.WorkspaceRequest) (*hcpapi.Workspace, error)
 	FindProjectByName(ctx context.Context, organization string, name string) (*hcpapi.Project, error)
+	ListVariables(ctx context.Context, workspaceID string) ([]hcpapi.WorkspaceVariable, error)
+	CreateVariable(ctx context.Context, workspaceID string, variable hcpapi.WorkspaceVariable) error
+	UpdateVariable(ctx context.Context, workspaceID string, variableID string, variable hcpapi.WorkspaceVariable) error
 }
 
 // Handler implements the HCPTerraformWorkspace remote handler contract.
@@ -111,6 +114,11 @@ func (h *Handler) DescribeChange(ctx context.Context, m *schema.Manifest, _ stri
 			Observed: workspace.ProjectID,
 		})
 	}
+	accountVariableDrift, err := describeAccountVariableDrift(ctx, client, workspace.ID, spec)
+	if err != nil {
+		return reconcile.ResourceChange{}, err
+	}
+	change.Drift = append(change.Drift, accountVariableDrift...)
 
 	if len(change.Drift) == 0 {
 		change.Action = reconcile.ActionNoOp
@@ -141,19 +149,23 @@ func (h *Handler) Apply(ctx context.Context, change reconcile.ResourceChange, _ 
 	workspace, err := client.GetWorkspace(ctx, spec.Organization, spec.Name)
 	switch {
 	case hcpapi.IsNotFound(err):
-		_, err = client.CreateWorkspace(ctx, spec.Organization, spec.Name, request)
-		return err
+		workspace, err = client.CreateWorkspace(ctx, spec.Organization, spec.Name, request)
+		if err != nil {
+			return err
+		}
 	case err != nil:
 		return err
+	default:
+		updateRequest := workspaceUpdateRequest(workspace, spec, projectID)
+		if updateRequest != nil {
+			workspace, err = client.UpdateWorkspace(ctx, workspace.ID, *updateRequest)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	updateRequest := workspaceUpdateRequest(workspace, spec, projectID)
-	if updateRequest == nil {
-		return nil
-	}
-
-	_, err = client.UpdateWorkspace(ctx, workspace.ID, *updateRequest)
-	return err
+	return ensureAccountVariable(ctx, client, workspace.ID, spec)
 }
 
 func workspaceRequestFromSpec(spec *schema.HCPTFWorkspaceSpec, projectID string) hcpapi.WorkspaceRequest {
@@ -200,6 +212,99 @@ func currentVCSIdentifier(workspace *hcpapi.Workspace) string {
 		return ""
 	}
 	return workspace.VCSRepo.Identifier
+}
+
+func describeAccountVariableDrift(ctx context.Context, client client, workspaceID string, spec *schema.HCPTFWorkspaceSpec) ([]reconcile.DriftField, error) {
+	desired, ok := desiredAccountVariable(spec)
+	if !ok {
+		return nil, nil
+	}
+
+	variables, err := client.ListVariables(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	current, ok := findWorkspaceVariable(variables, desired.Category, desired.Key)
+	if !ok {
+		return []reconcile.DriftField{{
+			Path:     "spec.account_id",
+			Desired:  spec.AccountID,
+			Observed: "",
+		}}, nil
+	}
+
+	if workspaceVariableMatches(current, desired) {
+		return nil, nil
+	}
+
+	return []reconcile.DriftField{{
+		Path:     "spec.account_id",
+		Desired:  spec.AccountID,
+		Observed: observedAccountID(current),
+	}}, nil
+}
+
+func ensureAccountVariable(ctx context.Context, client client, workspaceID string, spec *schema.HCPTFWorkspaceSpec) error {
+	desired, ok := desiredAccountVariable(spec)
+	if !ok {
+		return nil
+	}
+
+	variables, err := client.ListVariables(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+
+	current, ok := findWorkspaceVariable(variables, desired.Category, desired.Key)
+	if !ok {
+		return client.CreateVariable(ctx, workspaceID, desired)
+	}
+
+	if workspaceVariableMatches(current, desired) {
+		return nil
+	}
+
+	return client.UpdateVariable(ctx, workspaceID, current.ID, desired)
+}
+
+func desiredAccountVariable(spec *schema.HCPTFWorkspaceSpec) (hcpapi.WorkspaceVariable, bool) {
+	if strings.TrimSpace(spec.AccountID) == "" {
+		return hcpapi.WorkspaceVariable{}, false
+	}
+
+	return hcpapi.WorkspaceVariable{
+		Key:      "account_id",
+		Value:    fmt.Sprintf("%q", spec.AccountID),
+		Category: "terraform",
+		HCL:      true,
+	}, true
+}
+
+func findWorkspaceVariable(variables []hcpapi.WorkspaceVariable, category, key string) (hcpapi.WorkspaceVariable, bool) {
+	for _, variable := range variables {
+		if variable.Category == category && variable.Key == key {
+			return variable, true
+		}
+	}
+
+	return hcpapi.WorkspaceVariable{}, false
+}
+
+func workspaceVariableMatches(current, desired hcpapi.WorkspaceVariable) bool {
+	return current.Key == desired.Key &&
+		current.Value == desired.Value &&
+		current.Description == desired.Description &&
+		current.Category == desired.Category &&
+		current.HCL == desired.HCL &&
+		current.Sensitive == desired.Sensitive
+}
+
+func observedAccountID(variable hcpapi.WorkspaceVariable) string {
+	if variable.Category == "terraform" && variable.HCL {
+		return strings.Trim(variable.Value, "\"")
+	}
+	return variable.Value
 }
 
 func lookupProjectID(ctx context.Context, client client, spec *schema.HCPTFWorkspaceSpec) (string, error) {
