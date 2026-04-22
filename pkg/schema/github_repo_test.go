@@ -25,7 +25,6 @@ spec:
     - go
     - automation
   default_branch: main
-  branch_protection: true
 `))
 	if err != nil {
 		t.Fatalf("DecodeManifest() error = %v", err)
@@ -55,10 +54,6 @@ spec:
 
 	if len(spec.Topics) != 2 || spec.Topics[0] != "go" || spec.Topics[1] != "automation" {
 		t.Fatalf("topics = %#v, want [go automation]", spec.Topics)
-	}
-
-	if !strings.Contains(string(rendered), "branch_protection: true") {
-		t.Fatalf("rendered YAML missing branch_protection: true:\n%s", rendered)
 	}
 }
 

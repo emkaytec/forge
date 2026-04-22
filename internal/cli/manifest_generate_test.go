@@ -25,9 +25,8 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				"--owner", "emkaytec",
 				"--visibility", "private",
 				"--default-branch", "main",
-				"--branch-protection",
 			},
-			path: filepath.Join("emkaytec-sample-repo", "github-repo.yaml"),
+			path: filepath.Join("sample-repo", "github-repo.yaml"),
 			snippets: []string{
 				"kind: GitHubRepository",
 				"# visibility must be either public or private.",
@@ -36,25 +35,29 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				`name: "sample-repo"`,
 				"visibility: private",
 				"default_branch: main",
-				"branch_protection: true",
 			},
 		},
 		{
 			name: "hcp workspace",
 			args: []string{
-				"manifest", "generate", "hcp-tf-workspace", "sample-repo",
+				"manifest", "generate", "hcp-tf-workspace", "emkaytec/sample-repo",
+				"--environment", "dev",
+				"--account-id", "123456789012",
 				"--organization", "emkaytec",
 				"--project", "platform",
 				"--vcs-repo", "emkaytec/sample-repo",
 				"--execution-mode", "remote",
-				"--terraform-version", "1.9.8",
+				"--terraform-version", "1.14.0",
 			},
-			path: filepath.Join("sample-repo", "hcp-tf-workspace.yaml"),
+			path: filepath.Join("sample-repo", "hcp-tf-workspace-dev.yml"),
 			snippets: []string{
 				"kind: HCPTerraformWorkspace",
 				"# execution_mode must be remote, local, or agent.",
-				`name: "sample-repo"`,
+				`name: "emkaytec-sample-repo-dev"`,
+				`name: "sample-repo-dev"`,
+				`environment: "dev"`,
 				`organization: "emkaytec"`,
+				`account_id: "123456789012"`,
 				`vcs_repo: "emkaytec/sample-repo"`,
 				"execution_mode: remote",
 			},
@@ -191,12 +194,11 @@ func TestRunManifestGenerateGitHubRepoSupportsNonInteractiveFlags(t *testing.T) 
 		"--topic", "platform",
 		"--topic", "automation",
 		"--default-branch", "main",
-		"--branch-protection=false",
 	}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "emkaytec-forge", "github-repo.yaml")
+	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -212,7 +214,6 @@ func TestRunManifestGenerateGitHubRepoSupportsNonInteractiveFlags(t *testing.T) 
 		`- "platform"`,
 		`- "automation"`,
 		"default_branch: main",
-		"branch_protection: false",
 	} {
 		if !strings.Contains(contents, snippet) {
 			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
@@ -241,17 +242,18 @@ func TestRunManifestGenerateHCPTFWorkspaceSupportsNonInteractiveFlags(t *testing
 
 	if err := Run([]string{
 		"manifest", "generate", "hcp-tf-workspace",
-		"--application", "forge",
+		"--vcs-repo", "emkaytec/forge",
+		"--environment", "dev",
+		"--account-id", "123456789012",
 		"--organization", "emkaytec",
 		"--project", "platform",
-		"--vcs-repo", "emkaytec/forge",
 		"--execution-mode", "remote",
-		"--terraform-version", "1.9.8",
+		"--terraform-version", "1.14.0",
 	}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace.yaml")
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -259,12 +261,15 @@ func TestRunManifestGenerateHCPTFWorkspaceSupportsNonInteractiveFlags(t *testing
 
 	contents := string(rendered)
 	for _, snippet := range []string{
-		`name: "forge"`,
+		`name: "emkaytec-forge-dev"`,
+		`name: "forge-dev"`,
+		`environment: "dev"`,
 		`organization: "emkaytec"`,
 		`project: "platform"`,
+		`account_id: "123456789012"`,
 		`vcs_repo: "emkaytec/forge"`,
 		"execution_mode: remote",
-		`terraform_version: "1.9.8"`,
+		`terraform_version: "1.14.0"`,
 	} {
 		if !strings.Contains(contents, snippet) {
 			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
@@ -351,7 +356,6 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 		"Forge CLI repo", // description
 		"platform",       // topics
 		"",               // default branch (accept default "main")
-		"1",              // enable branch protection: Yes (index 1)
 	}, "\n") + "\n"))
 	root.SetArgs([]string{"manifest", "generate", "github-repo"})
 
@@ -359,7 +363,7 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "emkaytec-forge", "github-repo.yaml")
+	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -375,7 +379,6 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 		`description: "Forge CLI repo"`,
 		`- "platform"`,
 		"default_branch: main",
-		"branch_protection: true",
 	} {
 		if !strings.Contains(contents, snippet) {
 			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
@@ -403,17 +406,29 @@ func TestManifestGeneratePromptsForHCPTFWorkspaceFieldsWhenNameOmitted(t *testin
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
+	configPath := filepath.Join(tempDir, "aws-config")
+	if err := os.WriteFile(configPath, []byte(`
+[profile dev-admin]
+sso_account_id = 123456789012
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	t.Setenv("AWS_CONFIG_FILE", configPath)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(tempDir, "missing-credentials"))
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
-		"forge",             // application name
-		"emkaytec",          // organization (required)
-		"platform",          // project
-		"emkaytec/forge",    // vcs repo
-		"1",                 // execution mode: Remote (index 1)
-		"1.9.8",             // terraform version
+		"emkaytec/forge", // vcs repo (required)
+		"1",              // environment: Development (index 1)
+		"1",              // AWS account: dev-admin (index 1)
+		"emkaytec",       // organization (required)
+		"platform",       // project
+		"1",              // execution mode: Remote (index 1)
+		"1.14.0",         // terraform version
 	}, "\n") + "\n"))
 	root.SetArgs([]string{"manifest", "generate", "hcp-tf-workspace"})
 
@@ -421,7 +436,7 @@ func TestManifestGeneratePromptsForHCPTFWorkspaceFieldsWhenNameOmitted(t *testin
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace.yaml")
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -430,24 +445,110 @@ func TestManifestGeneratePromptsForHCPTFWorkspaceFieldsWhenNameOmitted(t *testin
 	contents := string(rendered)
 	for _, snippet := range []string{
 		"kind: HCPTerraformWorkspace",
-		`name: "forge"`,
+		`name: "emkaytec-forge-dev"`,
+		`name: "forge-dev"`,
+		`environment: "dev"`,
 		`organization: "emkaytec"`,
 		`project: "platform"`,
+		`account_id: "123456789012"`,
 		`vcs_repo: "emkaytec/forge"`,
 		"execution_mode: remote",
-		`terraform_version: "1.9.8"`,
+		`terraform_version: "1.14.0"`,
 	} {
 		if !strings.Contains(contents, snippet) {
 			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
 		}
 	}
 
-	if !strings.Contains(stdout.String(), "Application name:") {
-		t.Fatalf("expected application name prompt, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "VCS repo (owner/repo):") {
+		t.Fatalf("expected vcs repo prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Environment:") {
+		t.Fatalf("expected environment selector, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "AWS account:") {
+		t.Fatalf("expected AWS account selector, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "HCP TF organization") {
+		t.Fatalf("expected HCP TF organization prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "HCP TF project") {
+		t.Fatalf("expected HCP TF project prompt, got %q", stdout.String())
 	}
 
 	if !strings.Contains(stdout.String(), "Execution mode:") {
 		t.Fatalf("expected execution mode selector, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestManifestGeneratePromptsPreferAWSAccountMatchingEnvironment(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	configPath := filepath.Join(tempDir, "aws-config")
+	if err := os.WriteFile(configPath, []byte(`
+[default]
+sso_account_id = 000000000000
+
+[profile emkaytec-pre]
+sso_account_id = 222222222222
+
+[profile emkaytec-dev]
+sso_account_id = 111111111111
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	t.Setenv("AWS_CONFIG_FILE", configPath)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(tempDir, "missing-credentials"))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	root := newRootCommand(&stdout, &stderr, "dev")
+	root.SetIn(strings.NewReader(strings.Join([]string{
+		"emkaytec/forge", // vcs repo
+		"1",              // environment: Development
+		"",               // AWS account: accept default prioritized match
+		"emkaytec",       // organization
+		"platform",       // project
+		"1",              // execution mode: Remote
+		"1.14.0",         // terraform version
+	}, "\n") + "\n"))
+	root.SetArgs([]string{"manifest", "generate", "hcp-tf-workspace"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
+	rendered, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	contents := string(rendered)
+	if !strings.Contains(contents, `account_id: "111111111111"`) {
+		t.Fatalf("generated manifest did not contain prioritized dev account_id: %q", contents)
+	}
+
+	renderedPrompts := stdout.String()
+	devIndex := strings.Index(renderedPrompts, "emkaytec-dev (111111111111)")
+	defaultIndex := strings.Index(renderedPrompts, "default (000000000000)")
+	preIndex := strings.Index(renderedPrompts, "emkaytec-pre (222222222222)")
+	if devIndex == -1 || defaultIndex == -1 || preIndex == -1 {
+		t.Fatalf("expected prioritized AWS account options in prompt output, got %q", renderedPrompts)
+	}
+	if !(devIndex < defaultIndex && devIndex < preIndex) {
+		t.Fatalf("expected dev profile to be listed before non-matching profiles, got %q", renderedPrompts)
 	}
 
 	if stderr.Len() != 0 {
@@ -464,11 +565,11 @@ func TestManifestGeneratePromptsForLaunchAgentFieldsWhenNameOmitted(t *testing.T
 
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
-		"brew-update",                       // application name
-		"/opt/homebrew/bin/brew update",     // command (required)
-		"1",                                 // schedule type: Interval (index 1)
-		"86400",                             // interval seconds
-		"1",                                 // run at load: Yes (index 1)
+		"brew-update",                   // application name
+		"/opt/homebrew/bin/brew update", // command (required)
+		"1",                             // schedule type: Interval (index 1)
+		"86400",                         // interval seconds
+		"1",                             // run at load: Yes (index 1)
 	}, "\n") + "\n"))
 	root.SetArgs([]string{"manifest", "generate", "launch-agent"})
 
@@ -530,10 +631,9 @@ sso_account_id = 123456789012
 
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
-		"forge",
-		"1",
-		"1",
 		"emkaytec/forge",
+		"3",
+		"",
 		"arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, "\n") + "\n"))
 	root.SetArgs([]string{"manifest", "generate", "aws-iam-provisioner"})
@@ -542,7 +642,8 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	rendered, err := os.ReadFile(filepath.Join(tempDir, "forge", "aws-iam-provisioner-gha.yaml"))
+	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-prod-gha.yaml")
+	rendered, err := os.ReadFile(githubPath)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
@@ -556,7 +657,11 @@ sso_account_id = 123456789012
 		t.Fatalf("generated manifest did not contain prompted account_id: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-gha-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "emkaytec-forge-prod-gha"`) {
+		t.Fatalf("generated manifest did not contain expected metadata name: %q", contents)
+	}
+
+	if !strings.Contains(contents, `name: "forge-prod-gha-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain expected role name: %q", contents)
 	}
 
@@ -568,16 +673,45 @@ sso_account_id = 123456789012
 		t.Fatalf("generated manifest did not contain expected GitHub subject: %q", contents)
 	}
 
-	if !strings.Contains(stdout.String(), "Application name:") {
-		t.Fatalf("expected application name prompt, got %q", stdout.String())
+	hcpRendered, err := os.ReadFile(filepath.Join(tempDir, "forge", "aws-iam-provisioner-prod-tfc.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(hcp) error = %v", err)
+	}
+	hcpContents := string(hcpRendered)
+	if !strings.Contains(hcpContents, `name: "emkaytec-forge-prod-tfc"`) {
+		t.Fatalf("generated HCP manifest did not contain expected metadata name: %q", hcpContents)
+	}
+	if !strings.Contains(hcpContents, `name: "forge-prod-tfc-provisioner-role"`) {
+		t.Fatalf("generated HCP manifest did not contain expected role name: %q", hcpContents)
+	}
+	if !strings.Contains(hcpContents, `oidc_subject: "organization:emkaytec:project:*:workspace:forge-prod:run_phase:*"`) {
+		t.Fatalf("generated HCP manifest did not contain expected subject: %q", hcpContents)
 	}
 
 	if !strings.Contains(stdout.String(), "AWS account:") {
 		t.Fatalf("expected AWS account selector, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "Provisioning systems:") {
-		t.Fatalf("expected provisioning systems selector, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "Environment:") {
+		t.Fatalf("expected environment selector, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "VCS repo (owner/repo):") {
+		t.Fatalf("expected VCS repo prompt, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "Managed policy ARNs (comma-separated)") {
+		t.Fatalf("expected managed policy prompt, got %q", stdout.String())
+	}
+
+	if strings.Contains(stdout.String(), "Application name:") {
+		t.Fatalf("did not expect application name prompt, got %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "Provisioning systems:") {
+		t.Fatalf("did not expect provisioning systems prompt, got %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "HCP TF workspace (organization/project/workspace):") {
+		t.Fatalf("did not expect HCP TF workspace prompt, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
@@ -594,40 +728,56 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsNonInteractiveFlags(t *test
 
 	if err := Run([]string{
 		"manifest", "generate", "aws-iam-provisioner",
-		"--application", "forge",
+		"emkaytec/forge",
+		"--environment", "dev",
 		"--account-id", "123456789012",
-		"--provider", "hcp-terraform",
-		"--hcp-workspace", "emkaytec/platform/forge",
 		"--managed-policy", "arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "aws-iam-provisioner-tfc.yaml")
-	rendered, err := os.ReadFile(path)
+	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-gha.yaml")
+	githubRendered, err := os.ReadFile(githubPath)
 	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
+		t.Fatalf("ReadFile(github) error = %v", err)
 	}
 
-	contents := string(rendered)
-	if !strings.Contains(contents, `name: "forge-tfc"`) {
-		t.Fatalf("generated manifest did not contain expected metadata name: %q", contents)
+	githubContents := string(githubRendered)
+	if !strings.Contains(githubContents, `name: "emkaytec-forge-dev-gha"`) {
+		t.Fatalf("generated manifest did not contain expected metadata name: %q", githubContents)
+	}
+	if !strings.Contains(githubContents, `name: "forge-dev-gha-provisioner-role"`) {
+		t.Fatalf("generated manifest did not contain expected role name: %q", githubContents)
+	}
+	if !strings.Contains(githubContents, `oidc_subject: "repo:emkaytec/forge:*"`) {
+		t.Fatalf("generated manifest did not contain expected GitHub subject: %q", githubContents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-tfc-provisioner-role"`) {
-		t.Fatalf("generated manifest did not contain expected role name: %q", contents)
+	hcpPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-tfc.yaml")
+	hcpRendered, err := os.ReadFile(hcpPath)
+	if err != nil {
+		t.Fatalf("ReadFile(hcp) error = %v", err)
 	}
 
-	if !strings.Contains(contents, `oidc_provider: "app.terraform.io"`) {
-		t.Fatalf("generated manifest did not contain expected HCP provider: %q", contents)
+	hcpContents := string(hcpRendered)
+	if !strings.Contains(hcpContents, `name: "emkaytec-forge-dev-tfc"`) {
+		t.Fatalf("generated manifest did not contain expected metadata name: %q", hcpContents)
 	}
 
-	if !strings.Contains(contents, `oidc_subject: "organization:emkaytec:project:platform:workspace:forge:run_phase:*"`) {
-		t.Fatalf("generated manifest did not contain expected HCP subject: %q", contents)
+	if !strings.Contains(hcpContents, `name: "forge-dev-tfc-provisioner-role"`) {
+		t.Fatalf("generated manifest did not contain expected role name: %q", hcpContents)
 	}
 
-	if !strings.Contains(stdout.String(), path) {
-		t.Fatalf("expected success output to mention %q, got %q", path, stdout.String())
+	if !strings.Contains(hcpContents, `oidc_provider: "app.terraform.io"`) {
+		t.Fatalf("generated manifest did not contain expected HCP provider: %q", hcpContents)
+	}
+
+	if !strings.Contains(hcpContents, `oidc_subject: "organization:emkaytec:project:*:workspace:forge-dev:run_phase:*"`) {
+		t.Fatalf("generated manifest did not contain expected HCP subject: %q", hcpContents)
+	}
+
+	if !strings.Contains(stdout.String(), githubPath) || !strings.Contains(stdout.String(), hcpPath) {
+		t.Fatalf("expected success output to mention both manifest paths, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
@@ -635,7 +785,7 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsNonInteractiveFlags(t *test
 	}
 }
 
-func TestRunManifestGenerateAWSIAMProvisionerNormalizesApplicationNameFromFlag(t *testing.T) {
+func TestRunManifestGenerateAWSIAMProvisionerDerivesNamesFromVCSRepo(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
@@ -644,27 +794,26 @@ func TestRunManifestGenerateAWSIAMProvisionerNormalizesApplicationNameFromFlag(t
 
 	if err := Run([]string{
 		"manifest", "generate", "aws-iam-provisioner",
-		"--application", "  Forge App  ",
+		"emkaytec/ForgeApp",
+		"--environment", "dev",
 		"--account-id", "123456789012",
-		"--provider", "github-actions",
-		"--github-repo", "emkaytec/forge",
 		"--managed-policy", "arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-gha.yaml")
+	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-dev-gha.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 
 	contents := string(rendered)
-	if !strings.Contains(contents, `name: "forge-app-gha"`) {
+	if !strings.Contains(contents, `name: "emkaytec-forge-app-dev-gha"`) {
 		t.Fatalf("generated manifest did not contain normalized metadata name: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-app-gha-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "forge-app-dev-gha-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain normalized role name: %q", contents)
 	}
 
@@ -673,7 +822,7 @@ func TestRunManifestGenerateAWSIAMProvisionerNormalizesApplicationNameFromFlag(t
 	}
 }
 
-func TestRunManifestGenerateAWSIAMProvisionerSupportsMultipleProviders(t *testing.T) {
+func TestRunManifestGenerateAWSIAMProvisionerAlwaysWritesBothManifests(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
@@ -682,44 +831,41 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsMultipleProviders(t *testin
 
 	if err := Run([]string{
 		"manifest", "generate", "aws-iam-provisioner",
-		"--application", "forge",
+		"emkaytec/forge",
+		"--environment", "dev",
 		"--account-id", "123456789012",
-		"--provider", "github-actions",
-		"--provider", "hcp-terraform",
-		"--github-repo", "emkaytec/forge",
-		"--hcp-workspace", "emkaytec/platform/forge",
 		"--managed-policy", "arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-gha.yaml")
+	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-gha.yaml")
 	githubRendered, err := os.ReadFile(githubPath)
 	if err != nil {
 		t.Fatalf("ReadFile(github) error = %v", err)
 	}
 
 	githubContents := string(githubRendered)
-	if !strings.Contains(githubContents, `name: "forge-gha"`) {
+	if !strings.Contains(githubContents, `name: "emkaytec-forge-dev-gha"`) {
 		t.Fatalf("generated GitHub manifest did not contain suffixed metadata name: %q", githubContents)
 	}
 
-	if !strings.Contains(githubContents, `name: "forge-gha-provisioner-role"`) {
+	if !strings.Contains(githubContents, `name: "forge-dev-gha-provisioner-role"`) {
 		t.Fatalf("generated GitHub manifest did not contain suffixed role name: %q", githubContents)
 	}
 
-	hcpPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-tfc.yaml")
+	hcpPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-tfc.yaml")
 	hcpRendered, err := os.ReadFile(hcpPath)
 	if err != nil {
 		t.Fatalf("ReadFile(hcp) error = %v", err)
 	}
 
 	hcpContents := string(hcpRendered)
-	if !strings.Contains(hcpContents, `name: "forge-tfc"`) {
+	if !strings.Contains(hcpContents, `name: "emkaytec-forge-dev-tfc"`) {
 		t.Fatalf("generated HCP manifest did not contain suffixed metadata name: %q", hcpContents)
 	}
 
-	if !strings.Contains(hcpContents, `name: "forge-tfc-provisioner-role"`) {
+	if !strings.Contains(hcpContents, `name: "forge-dev-tfc-provisioner-role"`) {
 		t.Fatalf("generated HCP manifest did not contain suffixed role name: %q", hcpContents)
 	}
 
@@ -732,7 +878,7 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsMultipleProviders(t *testin
 	}
 }
 
-func TestRunManifestGenerateHelpDocumentsOptionalNameArgument(t *testing.T) {
+func TestRunManifestGenerateHelpDocumentsRepoDrivenDualManifestFlow(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -740,23 +886,30 @@ func TestRunManifestGenerateHelpDocumentsOptionalNameArgument(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "forge manifest generate aws-iam-provisioner [application]") {
-		t.Fatalf("expected usage with optional application argument, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "forge manifest generate aws-iam-provisioner [vcs-repo]") {
+		t.Fatalf("expected usage for aws-iam-provisioner, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "the application name") {
+	if strings.Contains(stdout.String(), "[application]") || strings.Contains(stdout.String(), "--application") {
+		t.Fatalf("did not expect application argument help, got %q", stdout.String())
+	}
+
+	if !strings.Contains(stdout.String(), "the connected VCS repo") || !strings.Contains(stdout.String(), "always writes both GitHub Actions and HCP Terraform provisioner manifests") {
 		t.Fatalf("expected prompt-flow help text, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "--account-profile") || !strings.Contains(stdout.String(), "--provider") {
+	if !strings.Contains(stdout.String(), "--account-profile") || !strings.Contains(stdout.String(), "--vcs-repo") || !strings.Contains(stdout.String(), "--environment") {
 		t.Fatalf("expected aws provisioner flags in help output, got %q", stdout.String())
 	}
+	if strings.Contains(stdout.String(), "--provider") || strings.Contains(stdout.String(), "--github-repo") || strings.Contains(stdout.String(), "--hcp-workspace") {
+		t.Fatalf("did not expect provider-selection flags in help output, got %q", stdout.String())
+	}
 
-	if !strings.Contains(stdout.String(), "forge manifest generate aws-iam-provisioner --application forge --account-id 123456789012") {
+	if !strings.Contains(stdout.String(), "forge manifest generate aws-iam-provisioner emkaytec/forge --environment dev --account-id 123456789012") {
 		t.Fatalf("expected non-interactive example usage, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "aws-iam-provisioner-gha.yaml") || !strings.Contains(stdout.String(), "aws-iam-provisioner-tfc.yaml") {
+	if !strings.Contains(stdout.String(), "aws-iam-provisioner-<env>-gha.yaml") || !strings.Contains(stdout.String(), "aws-iam-provisioner-<env>-tfc.yaml") {
 		t.Fatalf("expected provider-specific output note, got %q", stdout.String())
 	}
 
@@ -776,16 +929,15 @@ func TestRunManifestGenerateAWSIAMProvisionerTruncatesRoleNameToAWSLimit(t *test
 
 	if err := Run([]string{
 		"manifest", "generate", "aws-iam-provisioner",
-		"--application", longApplication,
+		"emkaytec/" + longApplication,
+		"--environment", "dev",
 		"--account-id", "123456789012",
-		"--provider", "github-actions",
-		"--github-repo", "emkaytec/forge",
 		"--managed-policy", "arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, &stdout, &stderr, "dev"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, longApplication, "aws-iam-provisioner-gha.yaml")
+	path := filepath.Join(tempDir, longApplication, "aws-iam-provisioner-dev-gha.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -805,8 +957,8 @@ func TestRunManifestGenerateAWSIAMProvisionerTruncatesRoleNameToAWSLimit(t *test
 		t.Fatalf("generated role name length = %d, want %d (%q)", len([]rune(spec.Name)), schema.AWSIAMRoleNameMaxLength, spec.Name)
 	}
 
-	if !strings.HasSuffix(spec.Name, "-gha-provisioner-role") {
-		t.Fatalf("generated role name = %q, want gha suffix", spec.Name)
+	if !strings.HasSuffix(spec.Name, "-dev-gha-provisioner-role") {
+		t.Fatalf("generated role name = %q, want dev gha suffix", spec.Name)
 	}
 
 	if stderr.Len() != 0 {
@@ -814,7 +966,7 @@ func TestRunManifestGenerateAWSIAMProvisionerTruncatesRoleNameToAWSLimit(t *test
 	}
 }
 
-func TestManifestGeneratePromptsNormalizeApplicationName(t *testing.T) {
+func TestManifestGeneratePromptsDeriveNamesFromVCSRepo(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
@@ -834,10 +986,9 @@ sso_account_id = 123456789012
 
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
-		"  Forge App  ",
-		"1",
-		"1",
-		"emkaytec/forge",
+		"emkaytec/ForgeApp",
+		"3",
+		"",
 		"arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, "\n") + "\n"))
 	root.SetArgs([]string{"manifest", "generate", "aws-iam-provisioner"})
@@ -846,18 +997,18 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-gha.yaml")
+	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-prod-gha.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 
 	contents := string(rendered)
-	if !strings.Contains(contents, `name: "forge-app-gha"`) {
+	if !strings.Contains(contents, `name: "emkaytec-forge-app-prod-gha"`) {
 		t.Fatalf("generated manifest did not contain normalized metadata name: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-app-gha-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "forge-app-prod-gha-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain normalized role name: %q", contents)
 	}
 

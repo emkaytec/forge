@@ -38,8 +38,7 @@
 //     field-by-field with the desired LaunchAgentSpec. Unknown live
 //     fields are ignored (the staged schema is deliberately narrow).
 //   - GitHubRepository: visibility, description, default branch,
-//     optional topics, and a boolean baseline branch-protection
-//     toggle on the managed default branch.
+//     and optional topics.
 //   - HCPTerraformWorkspace: execution mode, optional Terraform
 //     version, optional project binding, and optional VCS repository
 //     identifier.

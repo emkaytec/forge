@@ -27,11 +27,10 @@ var defaultManagedPolicies = []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"}
 const (
 	defaultGitHubVisibility        = "private"
 	defaultGitHubDefaultBranch     = "main"
-	defaultGitHubBranchProtection  = true
 	defaultHCPTFOrganization       = "emkaytec"
-	defaultHCPTFProject            = "platform"
+	defaultHCPTFProject            = "*"
 	defaultHCPTFExecutionMode      = "remote"
-	defaultHCPTFTerraformVersion   = "1.9.8"
+	defaultHCPTFTerraformVersion   = "1.14.0"
 	defaultLaunchAgentScheduleKind = "interval"
 	defaultLaunchAgentInterval     = 86400
 	defaultLaunchAgentHour         = 9
@@ -41,6 +40,7 @@ const (
 )
 
 type gitHubRepoTemplateData struct {
+	GeneratorCommand string
 	ApplicationName  string
 	ManifestName     string
 	Owner            string
@@ -48,36 +48,41 @@ type gitHubRepoTemplateData struct {
 	Description      string
 	Topics           []string
 	DefaultBranch    string
-	BranchProtection bool
 }
 
 type hcpTFWorkspaceTemplateData struct {
-	ApplicationName  string
+	GeneratorCommand string
+	ManifestName     string
+	WorkspaceName    string
+	Environment      string
 	Organization     string
 	Project          string
+	AccountID        string
 	VCSRepo          string
 	ExecutionMode    string
 	TerraformVersion string
 }
 
 type awsIAMProvisionerTemplateData struct {
-	ApplicationName string
-	RoleName        string
-	AccountID       string
-	OIDCProvider    string
-	OIDCSubject     string
-	ManagedPolicies []string
+	GeneratorCommand string
+	ApplicationName  string
+	RoleName         string
+	AccountID        string
+	OIDCProvider     string
+	OIDCSubject      string
+	ManagedPolicies  []string
 }
 
 type launchAgentTemplateData struct {
-	ApplicationName string
-	Label           string
-	Command         string
-	ScheduleType    string
-	IntervalSeconds int
-	Hour            int
-	Minute          int
-	RunAtLoad       bool
+	GeneratorCommand string
+	ApplicationName  string
+	Label            string
+	Command          string
+	ScheduleType     string
+	IntervalSeconds  int
+	Hour             int
+	Minute           int
+	RunAtLoad        bool
 }
 
 func newGenerateCommand() *cobra.Command {
@@ -102,14 +107,13 @@ func newGenerateCommand() *cobra.Command {
 
 func newGenerateGitHubRepoCommand() *cobra.Command {
 	var (
-		outputDir        string
-		application      string
-		owner            string
-		visibility       string
-		description      string
-		topics           []string
-		defaultBranch    string
-		branchProtection bool
+		outputDir     string
+		application   string
+		owner         string
+		visibility    string
+		description   string
+		topics        []string
+		defaultBranch string
 	)
 
 	cmd := &cobra.Command{
@@ -122,13 +126,13 @@ If the required inputs are not provided as flags, Forge prompts for:
   2. the repository owner (user or organization); defaults to the current GitHub login when available
   3. the repository visibility (public or private)
   4. an optional description and topic list
-  5. the default branch and branch-protection choice
+  5. the default branch
 
 Forge writes the manifest to <application>/github-repo.yaml under the application directory.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate github-repo forge",
 			"  forge manifest generate github-repo --application forge --owner emkaytec --visibility private --default-branch main",
-			"  forge manifest generate github-repo --application forge --owner emkaytec --topic platform --topic automation --branch-protection=false",
+			"  forge manifest generate github-repo --application forge --owner emkaytec --topic platform --topic automation",
 		}, "\n"),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -172,18 +176,13 @@ Forge writes the manifest to <application>/github-repo.yaml under the applicatio
 				return err
 			}
 
-			branchProtectionValue, err := resolveYesNo(p, "Enable branch protection",
-				cmd.Flags().Changed("branch-protection"), branchProtection, defaultGitHubBranchProtection)
-			if err != nil {
-				return err
-			}
-
 			if p.preludeDone {
 				fmt.Fprintln(p.out)
 			}
 
 			manifestName := scopedManifestName(ownerValue, applicationName)
 			data := gitHubRepoTemplateData{
+				GeneratorCommand: fmt.Sprintf("forge manifest generate github-repo %s", applicationName),
 				ApplicationName:  applicationName,
 				ManifestName:     manifestName,
 				Owner:            ownerValue,
@@ -191,21 +190,19 @@ Forge writes the manifest to <application>/github-repo.yaml under the applicatio
 				Description:      descriptionValue,
 				Topics:           topicsValue,
 				DefaultBranch:    defaultBranchValue,
-				BranchProtection: branchProtectionValue,
 			}
 
-			return writeGeneratedManifest(cmd, manifestName, "github-repo", outputDir, renderGitHubRepoTemplateWithData(data))
+			return writeGeneratedManifest(cmd, applicationName, "github-repo", outputDir, renderGitHubRepoTemplateWithData(data))
 		},
 	}
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the output directory")
+	cmd.Flags().StringVar(&application, "application", "", "Application name to use for spec.name and the output directory")
 	cmd.Flags().StringVar(&owner, "owner", "", "GitHub user or organization that will own the repository")
 	cmd.Flags().StringVar(&visibility, "visibility", "", "Repository visibility: public or private")
 	cmd.Flags().StringVar(&description, "description", "", "Repository description (optional)")
 	cmd.Flags().StringSliceVar(&topics, "topic", nil, "GitHub topic slug to attach (repeat or comma-separate)")
 	cmd.Flags().StringVar(&defaultBranch, "default-branch", "", "Default branch name")
-	cmd.Flags().BoolVar(&branchProtection, "branch-protection", defaultGitHubBranchProtection, "Enable branch protection on the default branch")
 
 	return cmd
 }
@@ -213,7 +210,9 @@ Forge writes the manifest to <application>/github-repo.yaml under the applicatio
 func newGenerateHCPTFWorkspaceCommand() *cobra.Command {
 	var (
 		outputDir        string
-		application      string
+		environment      string
+		accountProfile   string
+		accountID        string
 		organization     string
 		project          string
 		vcsRepo          string
@@ -222,21 +221,24 @@ func newGenerateHCPTFWorkspaceCommand() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "hcp-tf-workspace [application]",
+		Use:   "hcp-tf-workspace [vcs-repo]",
 		Short: "Write a starter hcp-tf-workspace manifest",
 		Long: strings.TrimSpace(`Write a starter hcp-tf-workspace manifest.
 
 If the required inputs are not provided as flags, Forge prompts for:
-  1. the application name
-  2. the HCP Terraform organization and optional project
-  3. an optional VCS repo binding
+  1. the connected VCS repo (owner/repo)
+  2. the deployment environment and AWS account
+  3. the HCP Terraform organization and optional project
   4. the execution mode and Terraform version
 
-Forge writes the manifest to <application>/hcp-tf-workspace.yaml under the application directory.`),
+Forge derives a shared application directory from the repository name
+(for example, emkaytec/forge becomes forge), appends the selected
+environment to metadata.name and spec.name, and writes the
+manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
 		Example: strings.Join([]string{
-			"  forge manifest generate hcp-tf-workspace forge",
-			"  forge manifest generate hcp-tf-workspace --application forge --organization emkaytec --project platform",
-			"  forge manifest generate hcp-tf-workspace --application forge --organization emkaytec --vcs-repo emkaytec/forge --execution-mode remote",
+			"  forge manifest generate hcp-tf-workspace emkaytec/forge --environment dev --account-id 123456789012",
+			"  forge manifest generate hcp-tf-workspace --vcs-repo emkaytec/forge --environment pre --account-profile preprod-admin --organization emkaytec --project platform",
+			"  forge manifest generate hcp-tf-workspace --vcs-repo emkaytec/forge --environment prod --account-id 123456789012 --organization emkaytec --execution-mode remote",
 		}, "\n"),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -247,22 +249,43 @@ Forge writes the manifest to <application>/hcp-tf-workspace.yaml under the appli
 			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			configureHCPTFWorkspaceFlow(p)
 
-			applicationName, err := resolveApplicationName(p, args, application)
+			vcsRepoValue, err := resolveRequiredVCSRepo(p, args, vcsRepo)
 			if err != nil {
 				return err
 			}
 
-			organizationValue, err := resolveRequiredText(p, "Organization", organization, defaultHCPTFOrganization)
+			environmentValue, err := resolveSelect(p, "Environment", environment, hcpTFEnvironmentOptions(), 0)
 			if err != nil {
 				return err
 			}
 
-			projectValue, err := resolveOptionalText(p, "Project", project, defaultHCPTFProject)
+			accountIDValue, err := resolveAWSAccountID(p, accountProfile, accountID, environmentValue)
 			if err != nil {
 				return err
 			}
 
-			vcsRepoValue, err := resolveOptionalText(p, "VCS repo (owner/repo)", vcsRepo, defaultVCSRepoFor(applicationName))
+			applicationName, err := applicationNameFromVCSRepo(vcsRepoValue)
+			if err != nil {
+				return err
+			}
+			manifestBaseName, err := manifestNameFromVCSRepo(vcsRepoValue)
+			if err != nil {
+				return err
+			}
+			manifestName := appendHCPTFEnvironmentSuffix(manifestBaseName, environmentValue)
+
+			workspaceName, err := workspaceNameFromVCSRepo(vcsRepoValue)
+			if err != nil {
+				return err
+			}
+			workspaceName = appendHCPTFEnvironmentSuffix(workspaceName, environmentValue)
+
+			organizationValue, err := resolveRequiredText(p, "HCP TF organization", organization, defaultHCPTFOrganization)
+			if err != nil {
+				return err
+			}
+
+			projectValue, err := resolveOptionalText(p, "HCP TF project", project, defaultHCPTFProject)
 			if err != nil {
 				return err
 			}
@@ -286,23 +309,36 @@ Forge writes the manifest to <application>/hcp-tf-workspace.yaml under the appli
 			}
 
 			data := hcpTFWorkspaceTemplateData{
-				ApplicationName:  applicationName,
+				GeneratorCommand: fmt.Sprintf("forge manifest generate hcp-tf-workspace %s", vcsRepoValue),
+				ManifestName:     manifestName,
+				WorkspaceName:    workspaceName,
+				Environment:      environmentValue,
 				Organization:     organizationValue,
 				Project:          projectValue,
+				AccountID:        accountIDValue,
 				VCSRepo:          vcsRepoValue,
 				ExecutionMode:    executionModeValue,
 				TerraformVersion: terraformVersionValue,
 			}
 
-			return writeGeneratedManifest(cmd, applicationName, "hcp-tf-workspace", outputDir, renderHCPTFWorkspaceTemplateWithData(data))
+			return writeGeneratedManifestWithFilename(
+				cmd,
+				applicationName,
+				"hcp-tf-workspace",
+				"hcp-tf-workspace-"+environmentValue+".yml",
+				outputDir,
+				renderHCPTFWorkspaceTemplateWithData(data),
+			)
 		},
 	}
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the output directory")
+	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, or prod")
+	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS shared-config profile to derive the account ID from")
+	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
 	cmd.Flags().StringVar(&organization, "organization", "", "HCP Terraform organization slug")
 	cmd.Flags().StringVar(&project, "project", "", "HCP Terraform project name")
-	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected VCS repository path, e.g. emkaytec/forge")
+	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected GitHub repository path, e.g. emkaytec/forge")
 	cmd.Flags().StringVar(&executionMode, "execution-mode", "", "Execution mode: remote, local, or agent")
 	cmd.Flags().StringVar(&terraformVersion, "terraform-version", "", "Pinned Terraform version for the workspace")
 
@@ -312,35 +348,34 @@ Forge writes the manifest to <application>/hcp-tf-workspace.yaml under the appli
 func newGenerateAWSIAMProvisionerCommand() *cobra.Command {
 	var (
 		outputDir      string
-		application    string
+		vcsRepo        string
+		environment    string
 		accountProfile string
 		accountID      string
-		providerKeys   []string
-		githubRepo     string
-		hcpWorkspace   string
 		managedPolicy  []string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "aws-iam-provisioner [application]",
+		Use:   "aws-iam-provisioner [vcs-repo]",
 		Short: "Write a starter aws-iam-provisioner manifest",
 		Long: strings.TrimSpace(`Write a starter aws-iam-provisioner manifest.
 
 If the required inputs are not provided as flags, Forge prompts for:
-  1. the application name
-  2. the AWS account to target
-  3. one or more provisioning systems (GitHub Actions and/or HCP Terraform)
-  4. the repository or workspace identities used in the OIDC subjects
-  5. the managed policy ARNs to attach
+  1. the connected VCS repo (owner/repo)
+  2. the deployment environment and AWS account
+  3. the managed policy ARNs to attach
 
-Forge writes provider-specific manifests such as
-<application>/aws-iam-provisioner-gha.yaml and
-<application>/aws-iam-provisioner-tfc.yaml under the application directory.`),
+Forge always writes both GitHub Actions and HCP Terraform provisioner manifests.
+The shared application directory comes from the repository name, while the
+manifest and role names stay owner-scoped with the environment suffix. The HCP
+Terraform trust subject is derived as <owner>/*/<repo>-<env> by default, and the
+manifests are written as
+<application>/aws-iam-provisioner-<env>-gha.yaml and
+<application>/aws-iam-provisioner-<env>-tfc.yaml.`),
 		Example: strings.Join([]string{
-			"  forge manifest generate aws-iam-provisioner forge",
-			"  forge manifest generate aws-iam-provisioner --application forge --account-id 123456789012 --provider github-actions --github-repo emkaytec/forge --managed-policy arn:aws:iam::aws:policy/ReadOnlyAccess",
-			"  forge manifest generate aws-iam-provisioner --application forge --account-profile prod-admin --provider hcp-terraform --hcp-workspace emkaytec/platform/forge",
-			"  forge manifest generate aws-iam-provisioner --application forge --provider github-actions --provider hcp-terraform --github-repo emkaytec/forge --hcp-workspace emkaytec/platform/forge",
+			"  forge manifest generate aws-iam-provisioner emkaytec/forge --environment dev --account-id 123456789012 --managed-policy arn:aws:iam::aws:policy/ReadOnlyAccess",
+			"  forge manifest generate aws-iam-provisioner --vcs-repo emkaytec/forge --environment prod --account-profile prod-admin",
+			"  forge manifest generate aws-iam-provisioner emkaytec/test-repo --environment pre --managed-policy arn:aws:iam::aws:policy/PowerUserAccess",
 		}, "\n"),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -351,22 +386,32 @@ Forge writes provider-specific manifests such as
 			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			configureAWSIAMProvisionerFlow(p)
 
-			applicationName, err := resolveApplicationName(p, args, application)
+			vcsRepoValue, err := resolveRequiredVCSRepo(p, args, vcsRepo)
 			if err != nil {
 				return err
 			}
 
-			accountIDValue, err := resolveAWSAccountID(p, accountProfile, accountID)
+			environmentValue, err := resolveSelect(p, "Environment", environment, hcpTFEnvironmentOptions(), 0)
 			if err != nil {
 				return err
 			}
 
-			providers, err := resolveOIDCProviders(p, providerKeys)
+			accountIDValue, err := resolveAWSAccountID(p, accountProfile, accountID, environmentValue)
 			if err != nil {
 				return err
 			}
 
-			targets, err := resolveProviderTargets(p, providers, githubRepo, hcpWorkspace)
+			directoryName, err := applicationNameFromVCSRepo(vcsRepoValue)
+			if err != nil {
+				return err
+			}
+
+			manifestRootName, err := manifestNameFromVCSRepo(vcsRepoValue)
+			if err != nil {
+				return err
+			}
+
+			targets, err := defaultAWSIAMProvisionerTargets(vcsRepoValue, environmentValue)
 			if err != nil {
 				return err
 			}
@@ -380,17 +425,26 @@ Forge writes provider-specific manifests such as
 				fmt.Fprintln(p.out)
 			}
 
-			return writeAWSIAMProvisionerManifests(cmd, applicationName, accountIDValue, providers, targets, policies, outputDir)
+			return writeAWSIAMProvisionerManifests(
+				cmd,
+				directoryName,
+				manifestRootName,
+				environmentValue,
+				accountIDValue,
+				fmt.Sprintf("forge manifest generate aws-iam-provisioner %s", vcsRepoValue),
+				defaultAWSIAMProvisionerProviders(),
+				targets,
+				policies,
+				outputDir,
+			)
 		},
 	}
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the output directory")
+	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected GitHub repository path, e.g. emkaytec/forge")
+	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, or prod")
 	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS config profile to resolve the target account from")
 	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
-	cmd.Flags().StringSliceVar(&providerKeys, "provider", nil, "Provisioning system to trust: github-actions or hcp-terraform (repeat to generate multiple provisioners)")
-	cmd.Flags().StringVar(&githubRepo, "github-repo", "", "GitHub repository path to trust for GitHub Actions, such as emkaytec/forge")
-	cmd.Flags().StringVar(&hcpWorkspace, "hcp-workspace", "", "HCP Terraform workspace path to trust, such as emkaytec/platform/forge")
 	cmd.Flags().StringSliceVar(&managedPolicy, "managed-policy", nil, "Managed policy ARN to attach (repeat or comma-separate)")
 
 	return cmd
@@ -453,10 +507,11 @@ Forge writes the manifest to <application>/launch-agent.yaml under the applicati
 			}
 
 			data := launchAgentTemplateData{
-				ApplicationName: applicationName,
-				Label:           launchAgentLabelPrefix + applicationName,
-				Command:         commandValue,
-				ScheduleType:    scheduleValue,
+				GeneratorCommand: fmt.Sprintf("forge manifest generate launch-agent %s", applicationName),
+				ApplicationName:  applicationName,
+				Label:            launchAgentLabelPrefix + applicationName,
+				Command:          commandValue,
+				ScheduleType:     scheduleValue,
 			}
 
 			switch scheduleValue {
@@ -506,11 +561,15 @@ Forge writes the manifest to <application>/launch-agent.yaml under the applicati
 }
 
 func writeGeneratedManifest(cmd *cobra.Command, applicationName, resource, outputDir, contents string) error {
+	return writeGeneratedManifestWithFilename(cmd, applicationName, resource, generatedManifestFilename(resource), outputDir, contents)
+}
+
+func writeGeneratedManifestWithFilename(cmd *cobra.Command, applicationName, resource, filename, outputDir, contents string) error {
 	if err := validateGeneratedManifest(contents); err != nil {
 		return err
 	}
 
-	path, err := applicationDirectoryOutputPath(applicationName, resource, outputDir)
+	path, err := applicationDirectoryOutputPath(applicationName, filename, outputDir)
 	if err != nil {
 		return err
 	}
@@ -535,13 +594,17 @@ func validateGeneratedManifest(contents string) error {
 	return nil
 }
 
-func applicationDirectoryOutputPath(name, resource, dir string) (string, error) {
+func applicationDirectoryOutputPath(name, filename, dir string) (string, error) {
 	baseDir, err := resolveBaseOutputDir(dir)
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Join(baseDir, name, resource+".yaml"), nil
+	return filepath.Join(baseDir, name, filename), nil
+}
+
+func generatedManifestFilename(resource string) string {
+	return resource + ".yaml"
 }
 
 func validateOutputDir(dir string) error {
@@ -658,19 +721,37 @@ func configureGitHubRepoFlow(p *promptSession) {
 		"Description",
 		"Topics (comma-separated)",
 		"Default branch",
-		"Enable branch protection",
 	})
 }
 
 func configureHCPTFWorkspaceFlow(p *promptSession) {
 	configureFlow(p, "Generate hcp-tf-workspace", []string{
-		"Application name",
-		"Organization",
-		"Project",
 		"VCS repo (owner/repo)",
+		"Environment",
+		"AWS account",
+		"AWS account ID",
+		"HCP TF organization",
+		"HCP TF project",
 		"Execution mode",
 		"Terraform version",
 	})
+}
+
+func hcpTFEnvironmentOptions() []selectOption {
+	return []selectOption{
+		{Label: "Development", Value: "dev"},
+		{Label: "Pre-prod", Value: "pre"},
+		{Label: "Prod", Value: "prod"},
+	}
+}
+
+func hcpTFEnvironmentLabel(environment string) string {
+	for _, option := range hcpTFEnvironmentOptions() {
+		if option.Value == strings.TrimSpace(environment) {
+			return option.Label
+		}
+	}
+	return strings.TrimSpace(environment)
 }
 
 func configureLaunchAgentFlow(p *promptSession) {
@@ -687,14 +768,11 @@ func configureLaunchAgentFlow(p *promptSession) {
 
 func configureAWSIAMProvisionerFlow(p *promptSession) {
 	labels := []string{
-		"Application name",
+		"VCS repo (owner/repo)",
+		"Environment",
 		"AWS account",
 		"AWS account ID",
-		"Provisioning systems",
 		"Managed policy ARNs (comma-separated)",
-	}
-	for _, provider := range oidc.Providers() {
-		labels = append(labels, provider.TargetLabel)
 	}
 	configureFlow(p, "Generate aws-iam-provisioner", labels)
 }
@@ -726,6 +804,35 @@ func resolveApplicationName(p *promptSession, args []string, flagValue string) (
 	}
 
 	return normalizeApplicationName(rawValue)
+}
+
+func resolveRequiredVCSRepo(p *promptSession, args []string, flagValue string) (string, error) {
+	normalizedFlag, err := normalizeVCSRepo(flagValue)
+	if err != nil && strings.TrimSpace(flagValue) != "" {
+		return "", err
+	}
+
+	if len(args) > 0 {
+		normalizedArg, err := normalizeVCSRepo(args[0])
+		if err != nil {
+			return "", err
+		}
+		if normalizedFlag != "" && normalizedFlag != normalizedArg {
+			return "", fmt.Errorf("vcs repo %q does not match --vcs-repo %q", normalizedArg, normalizedFlag)
+		}
+		return normalizedArg, nil
+	}
+
+	if normalizedFlag != "" {
+		return normalizedFlag, nil
+	}
+
+	rawValue, err := inputPrompt(p, "VCS repo (owner/repo)", "", true)
+	if err != nil {
+		return "", err
+	}
+
+	return normalizeVCSRepo(rawValue)
 }
 
 func normalizeApplicationName(value string) (string, error) {
@@ -763,6 +870,61 @@ func normalizeApplicationName(value string) (string, error) {
 	}
 
 	return normalized, nil
+}
+
+func normalizeVCSRepo(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("vcs repo must not be empty")
+	}
+
+	parts := strings.Split(value, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("vcs repo must use owner/repo")
+	}
+
+	owner := strings.TrimSpace(parts[0])
+	repo := strings.TrimSpace(parts[1])
+	if owner == "" || repo == "" {
+		return "", fmt.Errorf("vcs repo must use owner/repo")
+	}
+
+	return owner + "/" + repo, nil
+}
+
+func normalizeHCPTFWorkspaceTarget(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("HCP TF workspace must not be empty")
+	}
+
+	parts := strings.Split(value, "/")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("HCP TF workspace must use organization/project/workspace")
+	}
+
+	organization := strings.TrimSpace(parts[0])
+	project := strings.TrimSpace(parts[1])
+	workspace := strings.TrimSpace(parts[2])
+	if organization == "" || project == "" || workspace == "" {
+		return "", fmt.Errorf("HCP TF workspace must use organization/project/workspace")
+	}
+
+	return organization + "/" + project + "/" + workspace, nil
+}
+
+func resolveRequiredHCPTFWorkspaceTarget(p *promptSession, flagValue string) (string, error) {
+	flagValue = strings.TrimSpace(flagValue)
+	if flagValue != "" {
+		return normalizeHCPTFWorkspaceTarget(flagValue)
+	}
+
+	rawValue, err := inputPrompt(p, "HCP TF workspace (organization/project/workspace)", "", true)
+	if err != nil {
+		return "", err
+	}
+
+	return normalizeHCPTFWorkspaceTarget(rawValue)
 }
 
 func resolveRequiredText(p *promptSession, label, flagValue, defaultValue string) (string, error) {
@@ -874,10 +1036,6 @@ func parseCSVValues(raw string) []string {
 	return normalizeStringList(strings.Split(raw, ","))
 }
 
-func defaultVCSRepoFor(applicationName string) string {
-	return "emkaytec/" + applicationName
-}
-
 // scopedManifestName combines the GitHub owner and the application name so
 // the same repository name under different owners (e.g. alice/forge and
 // bob/forge) produces distinct metadata.name values and output directories.
@@ -918,6 +1076,118 @@ func normalizeOwnerSlug(owner string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+func manifestNameFromVCSRepo(vcsRepo string) (string, error) {
+	owner, repo, err := splitVCSRepo(vcsRepo)
+	if err != nil {
+		return "", err
+	}
+
+	normalizedRepo, err := normalizeApplicationName(repo)
+	if err != nil {
+		return "", fmt.Errorf("vcs repo %q has invalid repository name: %w", vcsRepo, err)
+	}
+
+	return scopedManifestName(owner, normalizedRepo), nil
+}
+
+func applicationNameFromVCSRepo(vcsRepo string) (string, error) {
+	_, repo, err := splitVCSRepo(vcsRepo)
+	if err != nil {
+		return "", err
+	}
+
+	normalizedRepo, err := normalizeApplicationName(repo)
+	if err != nil {
+		return "", fmt.Errorf("vcs repo %q has invalid repository name: %w", vcsRepo, err)
+	}
+
+	return normalizedRepo, nil
+}
+
+func defaultAWSIAMProvisionerProviders() []oidc.Provider {
+	providers := make([]oidc.Provider, 0, 2)
+	for _, key := range []string{"github-actions", "hcp-terraform"} {
+		provider, ok := oidc.Lookup(key)
+		if !ok {
+			continue
+		}
+		providers = append(providers, provider)
+	}
+	return providers
+}
+
+func defaultAWSIAMProvisionerTargets(vcsRepo, environment string) (map[string]string, error) {
+	owner, _, err := splitVCSRepo(vcsRepo)
+	if err != nil {
+		return nil, err
+	}
+
+	workspaceName, err := workspaceNameFromVCSRepo(vcsRepo)
+	if err != nil {
+		return nil, err
+	}
+	workspaceName = appendHCPTFEnvironmentSuffix(workspaceName, environment)
+
+	return map[string]string{
+		"github-actions": vcsRepo,
+		"hcp-terraform":  strings.Join([]string{owner, defaultHCPTFProject, workspaceName}, "/"),
+	}, nil
+}
+
+func workspaceNameFromVCSRepo(vcsRepo string) (string, error) {
+	_, repo, err := splitVCSRepo(vcsRepo)
+	if err != nil {
+		return "", err
+	}
+
+	return repo, nil
+}
+
+func appendHCPTFEnvironmentSuffix(name, environment string) string {
+	environment = strings.TrimSpace(environment)
+	if environment == "" {
+		return name
+	}
+	return name + "-" + environment
+}
+
+func splitVCSRepo(vcsRepo string) (string, string, error) {
+	normalized, err := normalizeVCSRepo(vcsRepo)
+	if err != nil {
+		return "", "", err
+	}
+
+	parts := strings.SplitN(normalized, "/", 2)
+	return parts[0], parts[1], nil
+}
+
+func splitHCPTFWorkspaceTarget(target string) (string, string, string, error) {
+	normalized, err := normalizeHCPTFWorkspaceTarget(target)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	parts := strings.SplitN(normalized, "/", 3)
+	return parts[0], parts[1], parts[2], nil
+}
+
+func trimEnvironmentSuffix(name, environment string) string {
+	environment = strings.TrimSpace(environment)
+	if environment == "" {
+		return name
+	}
+
+	suffix := "-" + environment
+	if strings.HasSuffix(name, suffix) {
+		trimmed := strings.TrimSuffix(name, suffix)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return name
 }
 
 // ghMemberships groups the GitHub identities a single token can act on
@@ -1010,7 +1280,11 @@ var currentGitHubMemberships = func(ctx context.Context) ghMemberships {
 	return ghMemberships{Login: account.Login, Orgs: logins}
 }
 
-func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (string, error) {
+func resolveAWSAccountID(p *promptSession, accountProfile, accountID, preferredEnvironment string) (string, error) {
+	return resolveAWSAccountIDWithLabels(p, "AWS account", "AWS account ID", accountProfile, accountID, preferredEnvironment)
+}
+
+func resolveAWSAccountIDWithLabels(p *promptSession, accountLabel, accountIDLabel, accountProfile, accountID, preferredEnvironment string) (string, error) {
 	accountProfile = strings.TrimSpace(accountProfile)
 	accountID = strings.TrimSpace(accountID)
 
@@ -1038,11 +1312,13 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (st
 	}
 
 	if len(profiles) == 0 {
-		return inputPrompt(p, "AWS account ID", "", true)
+		return inputPrompt(p, accountIDLabel, "", true)
 	}
 
-	options := make([]selectOption, 0, len(profiles)+1)
-	for _, profile := range profiles {
+	orderedProfiles, defaultIndex := prioritizeAWSProfiles(profiles, preferredEnvironment)
+
+	options := make([]selectOption, 0, len(orderedProfiles)+1)
+	for _, profile := range orderedProfiles {
 		label := profile.Name
 		if profile.AccountID != "" {
 			label += " (" + profile.AccountID + ")"
@@ -1053,20 +1329,67 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID string) (st
 	}
 	options = append(options, selectOption{Label: "Enter an account ID manually", Value: "manual"})
 
-	selected, err := selectOnePrompt(p, "AWS account", options, 0)
+	selected, err := selectOnePrompt(p, accountLabel, options, defaultIndex)
 	if err != nil {
 		return "", err
 	}
 	if selected.Value == "manual" {
-		return inputPrompt(p, "AWS account ID", "", true)
+		return inputPrompt(p, accountIDLabel, "", true)
 	}
 
-	profile, _ := accounts.FindProfile(profiles, selected.Value)
+	profile, _ := accounts.FindProfile(orderedProfiles, selected.Value)
 	if profile.AccountID != "" {
 		return profile.AccountID, nil
 	}
 
-	return inputPrompt(p, "AWS account ID", "", true)
+	return inputPrompt(p, accountIDLabel, "", true)
+}
+
+func prioritizeAWSProfiles(profiles []accounts.Profile, environment string) ([]accounts.Profile, int) {
+	environment = strings.TrimSpace(strings.ToLower(environment))
+	if environment == "" || len(profiles) == 0 {
+		return profiles, 0
+	}
+
+	matched := make([]accounts.Profile, 0, len(profiles))
+	other := make([]accounts.Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		if awsProfileMatchesEnvironment(profile.Name, environment) {
+			matched = append(matched, profile)
+			continue
+		}
+		other = append(other, profile)
+	}
+
+	if len(matched) == 0 {
+		return profiles, 0
+	}
+
+	ordered := make([]accounts.Profile, 0, len(profiles))
+	ordered = append(ordered, matched...)
+	ordered = append(ordered, other...)
+	return ordered, 0
+}
+
+func awsProfileMatchesEnvironment(name, environment string) bool {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" || environment == "" {
+		return false
+	}
+	if name == environment {
+		return true
+	}
+
+	tokens := strings.FieldsFunc(name, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	})
+	for _, token := range tokens {
+		if token == environment {
+			return true
+		}
+	}
+
+	return false
 }
 
 func resolveOIDCProviders(p *promptSession, providerKeys []string) ([]oidc.Provider, error) {
@@ -1128,26 +1451,17 @@ func resolveProviderTargets(p *promptSession, providers []oidc.Provider, githubR
 }
 
 func resolveProviderTarget(p *promptSession, provider oidc.Provider, githubRepo, hcpWorkspace string) (string, error) {
-	githubRepo = strings.TrimSpace(githubRepo)
-	hcpWorkspace = strings.TrimSpace(hcpWorkspace)
-
 	switch provider.Key {
 	case "github-actions":
-		if githubRepo != "" {
-			return githubRepo, nil
-		}
-		return inputPrompt(p, provider.TargetLabel, "", true)
+		return resolveRequiredVCSRepo(p, nil, githubRepo)
 	case "hcp-terraform":
-		if hcpWorkspace != "" {
-			return hcpWorkspace, nil
-		}
-		return inputPrompt(p, provider.TargetLabel, "", true)
+		return resolveRequiredHCPTFWorkspaceTarget(p, hcpWorkspace)
 	default:
 		return "", fmt.Errorf("unsupported provider %q", provider.Key)
 	}
 }
 
-func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accountID string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
+func writeAWSIAMProvisionerManifests(cmd *cobra.Command, directoryName, manifestRootName, environment, accountID, generatorCommand string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
 	for _, provider := range providers {
 		target, ok := targets[provider.Key]
 		if !ok {
@@ -1159,23 +1473,26 @@ func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accoun
 			return err
 		}
 
-		manifestName := applicationName + "-" + provider.NameSuffix
-		roleName, err := buildAWSIAMProvisionerRoleName(applicationName, provider.NameSuffix)
+		manifestBaseName := appendHCPTFEnvironmentSuffix(manifestRootName, environment)
+		manifestName := manifestBaseName + "-" + provider.NameSuffix
+		roleName, err := buildAWSIAMProvisionerRoleName(directoryName, environment, provider.NameSuffix)
 		if err != nil {
 			return err
 		}
 		resourceName := "aws-iam-provisioner-" + provider.NameSuffix
+		filename := fmt.Sprintf("aws-iam-provisioner-%s-%s.yaml", environment, provider.NameSuffix)
 
 		contents := renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
-			ApplicationName: manifestName,
-			RoleName:        roleName,
-			AccountID:       accountID,
-			OIDCProvider:    provider.Issuer,
-			OIDCSubject:     subject,
-			ManagedPolicies: policies,
+			GeneratorCommand: generatorCommand,
+			ApplicationName:  manifestName,
+			RoleName:         roleName,
+			AccountID:        accountID,
+			OIDCProvider:     provider.Issuer,
+			OIDCSubject:      subject,
+			ManagedPolicies:  policies,
 		})
 
-		if err := writeGeneratedManifest(cmd, applicationName, resourceName, outputDir, contents); err != nil {
+		if err := writeGeneratedManifestWithFilename(cmd, directoryName, resourceName, filename, outputDir, contents); err != nil {
 			return err
 		}
 	}
@@ -1183,14 +1500,17 @@ func writeAWSIAMProvisionerManifests(cmd *cobra.Command, applicationName, accoun
 	return nil
 }
 
-func buildAWSIAMProvisionerRoleName(applicationName, providerSuffix string) (string, error) {
+func buildAWSIAMProvisionerRoleName(baseName, environment, providerSuffix string) (string, error) {
 	roleSuffix := "-" + providerSuffix + "-provisioner-role"
+	if strings.TrimSpace(environment) != "" {
+		roleSuffix = "-" + environment + roleSuffix
+	}
 	maxApplicationLength := schema.AWSIAMRoleNameMaxLength - utf8.RuneCountInString(roleSuffix)
 	if maxApplicationLength <= 0 {
-		return "", fmt.Errorf("provider suffix %q leaves no room for the application name", providerSuffix)
+		return "", fmt.Errorf("role suffix %q leaves no room for the application name", roleSuffix)
 	}
 
-	return truncateRunes(applicationName, maxApplicationLength) + roleSuffix, nil
+	return truncateRunes(baseName, maxApplicationLength) + roleSuffix, nil
 }
 
 func truncateRunes(value string, maxRunes int) string {
@@ -1219,7 +1539,7 @@ func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, er
 }
 
 func renderGitHubRepoTemplateWithData(data gitHubRepoTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate github-repo %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: GitHubRepository
 metadata:
@@ -1239,43 +1559,47 @@ spec:
 %s
   # default_branch is optional; Forge defaults it to main when omitted.
   default_branch: %s
-  # branch_protection enables the baseline protected-branch workflow.
-  branch_protection: %t
-`, data.ApplicationName, data.ManifestName, data.Owner, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch, data.BranchProtection)
+`, data.GeneratorCommand, data.ManifestName, data.Owner, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch)
 }
 
 func renderHCPTFWorkspaceTemplateWithData(data hcpTFWorkspaceTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate hcp-tf-workspace %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: HCPTerraformWorkspace
 metadata:
-  # metadata.name is the stable manifest identifier Forge reports on.
+  # metadata.name is the stable manifest identifier derived from the VCS repo
+  # plus the selected environment suffix.
   name: %q
 spec:
-  # spec.name is the HCP Terraform workspace name.
+  # spec.name is the HCP Terraform workspace name derived from the repo name
+  # plus the selected environment suffix.
   name: %q
+  # environment selects the managed workspace suffix; use dev, pre, or prod.
+  environment: %q
   # organization is the HCP Terraform organization slug.
   organization: %q
   # project is optional and can group related workspaces.
   project: %q
-  # vcs_repo is optional and should use the connected VCS identifier.
+  # account_id is written to the workspace as a terraform variable named account_id.
+  account_id: %q
+  # vcs_repo is required and should use the connected GitHub identifier.
   vcs_repo: %q
   # execution_mode must be remote, local, or agent.
   execution_mode: %s
   # terraform_version is optional and pins the workspace runtime.
   terraform_version: %q
-`, data.ApplicationName, data.ApplicationName, data.ApplicationName, data.Organization, data.Project, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
+`, data.GeneratorCommand, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
 }
 
 func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate aws-iam-provisioner %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: AWSIAMProvisioner
 metadata:
-  # metadata.name is the application identifier Forge reports on.
+  # metadata.name is the application identifier plus the environment and provider suffix.
   name: %q
 spec:
-  # spec.name is the AWS IAM role Forge will manage for this application.
+  # spec.name is the AWS IAM role Forge will manage for this application and environment.
   name: %q
   # account_id is the 12-digit AWS account identifier.
   account_id: %q
@@ -1285,11 +1609,11 @@ spec:
   oidc_subject: %q
   # managed_policies is optional and attaches AWS managed policy ARNs.
 %s
-`, data.ApplicationName, data.ApplicationName, data.RoleName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
+`, data.GeneratorCommand, data.ApplicationName, data.RoleName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
 }
 
 func renderLaunchAgentTemplateWithData(data launchAgentTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate launch-agent %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: LaunchAgent
 metadata:
@@ -1308,7 +1632,7 @@ spec:
 %s
   # run_at_load controls whether the agent also runs on load.
   run_at_load: %t
-`, data.ApplicationName, data.ApplicationName, data.ApplicationName, data.Label, data.Command, data.ScheduleType, renderLaunchAgentSchedule(data), data.RunAtLoad)
+`, data.GeneratorCommand, data.ApplicationName, data.ApplicationName, data.Label, data.Command, data.ScheduleType, renderLaunchAgentSchedule(data), data.RunAtLoad)
 }
 
 func renderStringListBlock(field string, values []string) string {

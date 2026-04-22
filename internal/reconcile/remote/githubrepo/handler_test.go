@@ -52,18 +52,6 @@ func (f *fakeClient) ReplaceTopics(context.Context, string, string, []string) er
 	return nil
 }
 
-func (f *fakeClient) GetBranchProtection(context.Context, string, string, string) (*ghapi.BranchProtection, error) {
-	return nil, &ghapi.APIError{StatusCode: 404}
-}
-
-func (f *fakeClient) UpdateBranchProtection(context.Context, string, string, string, map[string]any) error {
-	return nil
-}
-
-func (f *fakeClient) DeleteBranchProtection(context.Context, string, string, string) error {
-	return nil
-}
-
 func TestDescribeChangeCreatesRepositoryWhenMissing(t *testing.T) {
 	fake := &fakeClient{
 		authenticatedUser: &ghapi.Account{Login: "example", Type: "User"},

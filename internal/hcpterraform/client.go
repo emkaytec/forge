@@ -84,6 +84,16 @@ type Project struct {
 	Name string
 }
 
+type WorkspaceVariable struct {
+	ID          string
+	Key         string
+	Value       string
+	Description string
+	Category    string
+	HCL         bool
+	Sensitive   bool
+}
+
 type WorkspaceRequest struct {
 	ExecutionMode    *string
 	TerraformVersion *string
@@ -155,6 +165,81 @@ func (c *Client) FindProjectByName(ctx context.Context, organization string, nam
 	}
 
 	return nil, fmt.Errorf("hcp terraform project %q not found in organization %q", name, organization)
+}
+
+func (c *Client) ListVariables(ctx context.Context, workspaceID string) ([]WorkspaceVariable, error) {
+	path := fmt.Sprintf("/workspaces/%s/vars", url.PathEscape(workspaceID))
+	var response struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Key         string `json:"key"`
+				Value       string `json:"value"`
+				Description string `json:"description"`
+				Category    string `json:"category"`
+				HCL         bool   `json:"hcl"`
+				Sensitive   bool   `json:"sensitive"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := c.request(ctx, http.MethodGet, path, nil, &response, http.StatusOK); err != nil {
+		return nil, err
+	}
+
+	variables := make([]WorkspaceVariable, 0, len(response.Data))
+	for _, item := range response.Data {
+		variables = append(variables, WorkspaceVariable{
+			ID:          item.ID,
+			Key:         item.Attributes.Key,
+			Value:       item.Attributes.Value,
+			Description: item.Attributes.Description,
+			Category:    item.Attributes.Category,
+			HCL:         item.Attributes.HCL,
+			Sensitive:   item.Attributes.Sensitive,
+		})
+	}
+
+	return variables, nil
+}
+
+func (c *Client) CreateVariable(ctx context.Context, workspaceID string, variable WorkspaceVariable) error {
+	path := fmt.Sprintf("/workspaces/%s/vars", url.PathEscape(workspaceID))
+	request := map[string]any{
+		"data": map[string]any{
+			"type": "vars",
+			"attributes": map[string]any{
+				"key":         variable.Key,
+				"value":       variable.Value,
+				"description": variable.Description,
+				"category":    variable.Category,
+				"hcl":         variable.HCL,
+				"sensitive":   variable.Sensitive,
+			},
+		},
+	}
+
+	return c.request(ctx, http.MethodPost, path, request, nil, http.StatusCreated, http.StatusOK)
+}
+
+func (c *Client) UpdateVariable(ctx context.Context, workspaceID string, variableID string, variable WorkspaceVariable) error {
+	path := fmt.Sprintf("/workspaces/%s/vars/%s", url.PathEscape(workspaceID), url.PathEscape(variableID))
+	request := map[string]any{
+		"data": map[string]any{
+			"id":   variableID,
+			"type": "vars",
+			"attributes": map[string]any{
+				"key":         variable.Key,
+				"value":       variable.Value,
+				"description": variable.Description,
+				"category":    variable.Category,
+				"hcl":         variable.HCL,
+				"sensitive":   variable.Sensitive,
+			},
+		},
+	}
+
+	return c.request(ctx, http.MethodPatch, path, request, nil, http.StatusOK)
 }
 
 type workspaceResponseData struct {

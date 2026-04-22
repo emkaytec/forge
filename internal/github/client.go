@@ -113,8 +113,6 @@ type TopicsResponse struct {
 	Names []string `json:"names"`
 }
 
-type BranchProtection struct{}
-
 func (c *Client) GetAuthenticatedUser(ctx context.Context) (*Account, error) {
 	var account Account
 	if err := c.request(ctx, http.MethodGet, "/user", nil, &account, http.StatusOK); err != nil {
@@ -185,23 +183,6 @@ func (c *Client) UpdateRepository(ctx context.Context, owner string, repo string
 func (c *Client) ReplaceTopics(ctx context.Context, owner string, repo string, topics []string) error {
 	request := TopicsResponse{Names: topics}
 	return c.request(ctx, http.MethodPut, fmt.Sprintf("/repos/%s/%s/topics", url.PathEscape(owner), url.PathEscape(repo)), request, nil, http.StatusOK)
-}
-
-func (c *Client) GetBranchProtection(ctx context.Context, owner string, repo string, branch string) (*BranchProtection, error) {
-	var protection BranchProtection
-	if err := c.request(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s/branches/%s/protection", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(branch)), nil, &protection, http.StatusOK); err != nil {
-		return nil, err
-	}
-
-	return &protection, nil
-}
-
-func (c *Client) UpdateBranchProtection(ctx context.Context, owner string, repo string, branch string, request map[string]any) error {
-	return c.request(ctx, http.MethodPut, fmt.Sprintf("/repos/%s/%s/branches/%s/protection", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(branch)), request, nil, http.StatusOK)
-}
-
-func (c *Client) DeleteBranchProtection(ctx context.Context, owner string, repo string, branch string) error {
-	return c.request(ctx, http.MethodDelete, fmt.Sprintf("/repos/%s/%s/branches/%s/protection", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(branch)), nil, nil, http.StatusNoContent)
 }
 
 func (c *Client) request(ctx context.Context, method string, path string, requestBody any, responseBody any, expectedStatusCodes ...int) error {
