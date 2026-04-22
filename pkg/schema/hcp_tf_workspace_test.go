@@ -18,8 +18,10 @@ metadata:
   name: core-platform
 spec:
   name: core-platform
+  environment: dev
   organization: emkaytec
   project: platform
+  account_id: "123456789012"
   vcs_repo: github.com/emkaytec/forge
   execution_mode: agent
   terraform_version: 1.11.4
@@ -46,6 +48,12 @@ spec:
 	if spec.VCSRepo != "github.com/emkaytec/forge" {
 		t.Fatalf("vcs_repo = %q, want github.com/emkaytec/forge", spec.VCSRepo)
 	}
+	if spec.Environment != "dev" {
+		t.Fatalf("environment = %q, want dev", spec.Environment)
+	}
+	if spec.AccountID != "123456789012" {
+		t.Fatalf("account_id = %q, want 123456789012", spec.AccountID)
+	}
 }
 
 func TestHCPTFWorkspaceRejectsInvalidExecutionMode(t *testing.T) {
@@ -67,5 +75,29 @@ spec:
 
 	if !strings.Contains(err.Error(), "spec.execution_mode") {
 		t.Fatalf("DecodeManifest() error = %v, want spec.execution_mode validation", err)
+	}
+}
+
+func TestHCPTFWorkspaceRejectsInvalidEnvironment(t *testing.T) {
+	t.Parallel()
+
+	_, err := schema.DecodeManifest([]byte(`
+apiVersion: forge/v1
+kind: HCPTerraformWorkspace
+metadata:
+  name: core-platform-stage
+spec:
+  name: core-platform-stage
+  environment: stage
+  organization: emkaytec
+  account_id: "123456789012"
+  execution_mode: remote
+`))
+	if err == nil {
+		t.Fatal("DecodeManifest() error = nil, want invalid environment")
+	}
+
+	if !strings.Contains(err.Error(), "spec.environment") {
+		t.Fatalf("DecodeManifest() error = %v, want spec.environment validation", err)
 	}
 }

@@ -38,20 +38,21 @@ type Manifest struct {
 
 // GitHubRepoSpec is the initial GitHub repository schema staged in Forge.
 type GitHubRepoSpec struct {
-	Owner            string   `yaml:"owner"`
-	Name             string   `yaml:"name"`
-	Visibility       string   `yaml:"visibility"`
-	Description      string   `yaml:"description,omitempty"`
-	Topics           []string `yaml:"topics,omitempty"`
-	DefaultBranch    string   `yaml:"default_branch,omitempty"`
-	BranchProtection bool     `yaml:"branch_protection,omitempty"`
+	Owner         string   `yaml:"owner"`
+	Name          string   `yaml:"name"`
+	Visibility    string   `yaml:"visibility"`
+	Description   string   `yaml:"description,omitempty"`
+	Topics        []string `yaml:"topics,omitempty"`
+	DefaultBranch string   `yaml:"default_branch,omitempty"`
 }
 
 // HCPTFWorkspaceSpec is the initial HCP Terraform workspace schema staged in Forge.
 type HCPTFWorkspaceSpec struct {
 	Name             string `yaml:"name"`
+	Environment      string `yaml:"environment,omitempty"`
 	Organization     string `yaml:"organization"`
 	Project          string `yaml:"project,omitempty"`
+	AccountID        string `yaml:"account_id,omitempty"`
 	VCSRepo          string `yaml:"vcs_repo,omitempty"`
 	ExecutionMode    string `yaml:"execution_mode"`
 	TerraformVersion string `yaml:"terraform_version,omitempty"`
@@ -181,8 +182,21 @@ func (s *HCPTFWorkspaceSpec) Validate() error {
 		return invalidField("spec.name", "must not be empty")
 	}
 
+	switch s.Environment {
+	case "", "dev", "pre", "prod":
+	default:
+		return invalidField("spec.environment", "must be one of dev, pre, or prod")
+	}
+
 	if s.Organization == "" {
 		return invalidField("spec.organization", "must not be empty")
+	}
+
+	if s.Environment != "" && s.AccountID == "" {
+		return invalidField("spec.account_id", "must not be empty when spec.environment is set")
+	}
+	if s.AccountID != "" && s.Environment == "" {
+		return invalidField("spec.environment", "must not be empty when spec.account_id is set")
 	}
 
 	switch s.ExecutionMode {
