@@ -40,16 +40,18 @@ const (
 )
 
 type gitHubRepoTemplateData struct {
-	ApplicationName string
-	ManifestName    string
-	Owner           string
-	Visibility      string
-	Description     string
-	Topics          []string
-	DefaultBranch   string
+	GeneratorCommand string
+	ApplicationName  string
+	ManifestName     string
+	Owner            string
+	Visibility       string
+	Description      string
+	Topics           []string
+	DefaultBranch    string
 }
 
 type hcpTFWorkspaceTemplateData struct {
+	GeneratorCommand string
 	ManifestName     string
 	WorkspaceName    string
 	Environment      string
@@ -62,23 +64,25 @@ type hcpTFWorkspaceTemplateData struct {
 }
 
 type awsIAMProvisionerTemplateData struct {
-	ApplicationName string
-	RoleName        string
-	AccountID       string
-	OIDCProvider    string
-	OIDCSubject     string
-	ManagedPolicies []string
+	GeneratorCommand string
+	ApplicationName  string
+	RoleName         string
+	AccountID        string
+	OIDCProvider     string
+	OIDCSubject      string
+	ManagedPolicies  []string
 }
 
 type launchAgentTemplateData struct {
-	ApplicationName string
-	Label           string
-	Command         string
-	ScheduleType    string
-	IntervalSeconds int
-	Hour            int
-	Minute          int
-	RunAtLoad       bool
+	GeneratorCommand string
+	ApplicationName  string
+	Label            string
+	Command          string
+	ScheduleType     string
+	IntervalSeconds  int
+	Hour             int
+	Minute           int
+	RunAtLoad        bool
 }
 
 func newGenerateCommand() *cobra.Command {
@@ -178,13 +182,14 @@ Forge writes the manifest to <application>/github-repo.yaml under the applicatio
 
 			manifestName := scopedManifestName(ownerValue, applicationName)
 			data := gitHubRepoTemplateData{
-				ApplicationName: applicationName,
-				ManifestName:    manifestName,
-				Owner:           ownerValue,
-				Visibility:      visibilityValue,
-				Description:     descriptionValue,
-				Topics:          topicsValue,
-				DefaultBranch:   defaultBranchValue,
+				GeneratorCommand: fmt.Sprintf("forge manifest generate github-repo %s", applicationName),
+				ApplicationName:  applicationName,
+				ManifestName:     manifestName,
+				Owner:            ownerValue,
+				Visibility:       visibilityValue,
+				Description:      descriptionValue,
+				Topics:           topicsValue,
+				DefaultBranch:    defaultBranchValue,
 			}
 
 			return writeGeneratedManifest(cmd, applicationName, "github-repo", outputDir, renderGitHubRepoTemplateWithData(data))
@@ -304,6 +309,7 @@ manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
 			}
 
 			data := hcpTFWorkspaceTemplateData{
+				GeneratorCommand: fmt.Sprintf("forge manifest generate hcp-tf-workspace %s", vcsRepoValue),
 				ManifestName:     manifestName,
 				WorkspaceName:    workspaceName,
 				Environment:      environmentValue,
@@ -425,6 +431,7 @@ manifests are written as
 				manifestRootName,
 				environmentValue,
 				accountIDValue,
+				fmt.Sprintf("forge manifest generate aws-iam-provisioner %s", vcsRepoValue),
 				defaultAWSIAMProvisionerProviders(),
 				targets,
 				policies,
@@ -500,10 +507,11 @@ Forge writes the manifest to <application>/launch-agent.yaml under the applicati
 			}
 
 			data := launchAgentTemplateData{
-				ApplicationName: applicationName,
-				Label:           launchAgentLabelPrefix + applicationName,
-				Command:         commandValue,
-				ScheduleType:    scheduleValue,
+				GeneratorCommand: fmt.Sprintf("forge manifest generate launch-agent %s", applicationName),
+				ApplicationName:  applicationName,
+				Label:            launchAgentLabelPrefix + applicationName,
+				Command:          commandValue,
+				ScheduleType:     scheduleValue,
 			}
 
 			switch scheduleValue {
@@ -735,6 +743,15 @@ func hcpTFEnvironmentOptions() []selectOption {
 		{Label: "Pre-prod", Value: "pre"},
 		{Label: "Prod", Value: "prod"},
 	}
+}
+
+func hcpTFEnvironmentLabel(environment string) string {
+	for _, option := range hcpTFEnvironmentOptions() {
+		if option.Value == strings.TrimSpace(environment) {
+			return option.Label
+		}
+	}
+	return strings.TrimSpace(environment)
 }
 
 func configureLaunchAgentFlow(p *promptSession) {
@@ -1264,6 +1281,10 @@ var currentGitHubMemberships = func(ctx context.Context) ghMemberships {
 }
 
 func resolveAWSAccountID(p *promptSession, accountProfile, accountID, preferredEnvironment string) (string, error) {
+	return resolveAWSAccountIDWithLabels(p, "AWS account", "AWS account ID", accountProfile, accountID, preferredEnvironment)
+}
+
+func resolveAWSAccountIDWithLabels(p *promptSession, accountLabel, accountIDLabel, accountProfile, accountID, preferredEnvironment string) (string, error) {
 	accountProfile = strings.TrimSpace(accountProfile)
 	accountID = strings.TrimSpace(accountID)
 
@@ -1291,7 +1312,7 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID, preferredE
 	}
 
 	if len(profiles) == 0 {
-		return inputPrompt(p, "AWS account ID", "", true)
+		return inputPrompt(p, accountIDLabel, "", true)
 	}
 
 	orderedProfiles, defaultIndex := prioritizeAWSProfiles(profiles, preferredEnvironment)
@@ -1308,12 +1329,12 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID, preferredE
 	}
 	options = append(options, selectOption{Label: "Enter an account ID manually", Value: "manual"})
 
-	selected, err := selectOnePrompt(p, "AWS account", options, defaultIndex)
+	selected, err := selectOnePrompt(p, accountLabel, options, defaultIndex)
 	if err != nil {
 		return "", err
 	}
 	if selected.Value == "manual" {
-		return inputPrompt(p, "AWS account ID", "", true)
+		return inputPrompt(p, accountIDLabel, "", true)
 	}
 
 	profile, _ := accounts.FindProfile(orderedProfiles, selected.Value)
@@ -1321,7 +1342,7 @@ func resolveAWSAccountID(p *promptSession, accountProfile, accountID, preferredE
 		return profile.AccountID, nil
 	}
 
-	return inputPrompt(p, "AWS account ID", "", true)
+	return inputPrompt(p, accountIDLabel, "", true)
 }
 
 func prioritizeAWSProfiles(profiles []accounts.Profile, environment string) ([]accounts.Profile, int) {
@@ -1440,7 +1461,7 @@ func resolveProviderTarget(p *promptSession, provider oidc.Provider, githubRepo,
 	}
 }
 
-func writeAWSIAMProvisionerManifests(cmd *cobra.Command, directoryName, manifestRootName, environment, accountID string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
+func writeAWSIAMProvisionerManifests(cmd *cobra.Command, directoryName, manifestRootName, environment, accountID, generatorCommand string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
 	for _, provider := range providers {
 		target, ok := targets[provider.Key]
 		if !ok {
@@ -1462,12 +1483,13 @@ func writeAWSIAMProvisionerManifests(cmd *cobra.Command, directoryName, manifest
 		filename := fmt.Sprintf("aws-iam-provisioner-%s-%s.yaml", environment, provider.NameSuffix)
 
 		contents := renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
-			ApplicationName: manifestName,
-			RoleName:        roleName,
-			AccountID:       accountID,
-			OIDCProvider:    provider.Issuer,
-			OIDCSubject:     subject,
-			ManagedPolicies: policies,
+			GeneratorCommand: generatorCommand,
+			ApplicationName:  manifestName,
+			RoleName:         roleName,
+			AccountID:        accountID,
+			OIDCProvider:     provider.Issuer,
+			OIDCSubject:      subject,
+			ManagedPolicies:  policies,
 		})
 
 		if err := writeGeneratedManifestWithFilename(cmd, directoryName, resourceName, filename, outputDir, contents); err != nil {
@@ -1517,7 +1539,7 @@ func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, er
 }
 
 func renderGitHubRepoTemplateWithData(data gitHubRepoTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate github-repo %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: GitHubRepository
 metadata:
@@ -1537,11 +1559,11 @@ spec:
 %s
   # default_branch is optional; Forge defaults it to main when omitted.
   default_branch: %s
-`, data.ApplicationName, data.ManifestName, data.Owner, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch)
+`, data.GeneratorCommand, data.ManifestName, data.Owner, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch)
 }
 
 func renderHCPTFWorkspaceTemplateWithData(data hcpTFWorkspaceTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate hcp-tf-workspace %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: HCPTerraformWorkspace
 metadata:
@@ -1566,11 +1588,11 @@ spec:
   execution_mode: %s
   # terraform_version is optional and pins the workspace runtime.
   terraform_version: %q
-`, data.VCSRepo, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
+`, data.GeneratorCommand, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
 }
 
 func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate aws-iam-provisioner %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: AWSIAMProvisioner
 metadata:
@@ -1587,11 +1609,11 @@ spec:
   oidc_subject: %q
   # managed_policies is optional and attaches AWS managed policy ARNs.
 %s
-`, data.ApplicationName, data.ApplicationName, data.RoleName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
+`, data.GeneratorCommand, data.ApplicationName, data.RoleName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
 }
 
 func renderLaunchAgentTemplateWithData(data launchAgentTemplateData) string {
-	return fmt.Sprintf(`# Generated by "forge manifest generate launch-agent %s".
+	return fmt.Sprintf(`# Generated by %q.
 apiVersion: forge/v1
 kind: LaunchAgent
 metadata:
@@ -1610,7 +1632,7 @@ spec:
 %s
   # run_at_load controls whether the agent also runs on load.
   run_at_load: %t
-`, data.ApplicationName, data.ApplicationName, data.ApplicationName, data.Label, data.Command, data.ScheduleType, renderLaunchAgentSchedule(data), data.RunAtLoad)
+`, data.GeneratorCommand, data.ApplicationName, data.ApplicationName, data.Label, data.Command, data.ScheduleType, renderLaunchAgentSchedule(data), data.RunAtLoad)
 }
 
 func renderStringListBlock(field string, values []string) string {
