@@ -26,61 +26,60 @@ type composeTerraformGitHubRepoOptions struct {
 }
 
 func newComposeCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "compose",
+		Short: "Compose higher-level Forge manifest blueprints",
+		Long:  "Compose higher-level blueprints into several primitive Forge manifests.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+
+	cmd.AddCommand(newComposeTerraformGitHubRepoCommand())
+
+	return cmd
+}
+
+func newComposeTerraformGitHubRepoCommand() *cobra.Command {
 	var options composeTerraformGitHubRepoOptions
 
 	cmd := &cobra.Command{
-		Use:   "compose [blueprint] [application]",
-		Short: "Compose a blueprint into several primitive manifests",
-		Long: strings.TrimSpace(`Compose a higher-level blueprint into several primitive Forge manifests.
+		Use:   "terraform-github-repo [application]",
+		Short: "Compose a repo stack into github-repo, hcp-tf-workspace, and aws-iam-provisioner manifests",
+		Long: strings.TrimSpace(`Compose a repo stack into github-repo, hcp-tf-workspace, and aws-iam-provisioner manifests.
 
-Blueprints are the authoring layer for stack-style workflows that share inputs
-across several generated manifests. The generated output remains atomic so the
-individual manifest files stay easy to review and reconcile.
+If the required inputs are not provided as flags, Forge prompts for:
+  1. the application name and repository owner
+  2. the repository visibility, description, topics, and default branch
+  3. one or more deployment environments plus the AWS account for each one
+  4. the shared HCP Terraform organization, project, execution mode, and Terraform version
+  5. the managed policy ARNs to attach to generated provisioner roles
 
-Supported blueprints:
-  terraform-github-repo generates github-repo, hcp-tf-workspace, and
-  aws-iam-provisioner manifests from one repo-centered prompt flow.`),
+Forge writes:
+  - <application>/github-repo.yaml
+  - <application>/hcp-tf-workspace-<env>.yml for each selected environment
+  - <application>/aws-iam-provisioner-<env>-gha.yaml and
+    <application>/aws-iam-provisioner-<env>-tfc.yaml for each selected environment`),
 		Example: strings.Join([]string{
 			"  forge manifest compose terraform-github-repo forge",
 			"  forge manifest compose terraform-github-repo --application forge --owner emkaytec --environment dev --account-id dev=123456789012",
 			"  forge manifest compose terraform-github-repo forge --environment dev --environment prod --account-profile dev=emkaytec-dev --account-profile prod=emkaytec-prod",
 		}, "\n"),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return cmd.Help()
-			}
-
-			if strings.EqualFold(strings.TrimSpace(args[0]), "help") {
-				return cmd.Help()
-			}
-
-			if err := cobra.MaximumNArgs(2)(cmd, args); err != nil {
-				return err
-			}
-
 			if err := validateOutputDir(options.outputDir); err != nil {
 				return err
 			}
 
-			blueprint := strings.TrimSpace(args[0])
-			if blueprint == "" {
-				return fmt.Errorf("blueprint name must not be empty")
-			}
-
 			applicationArgs := []string(nil)
-			if len(args) == 2 {
-				if strings.TrimSpace(args[1]) == "" {
+			if len(args) == 1 {
+				if strings.TrimSpace(args[0]) == "" {
 					return fmt.Errorf("application name must not be empty")
 				}
-				applicationArgs = []string{args[1]}
+				applicationArgs = []string{args[0]}
 			}
 
-			switch blueprint {
-			case "terraform-github-repo":
-				return runComposeTerraformGitHubRepo(cmd, applicationArgs, options)
-			default:
-				return fmt.Errorf("unsupported blueprint %q", blueprint)
-			}
+			return runComposeTerraformGitHubRepo(cmd, applicationArgs, options)
 		},
 	}
 

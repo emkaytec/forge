@@ -88,14 +88,15 @@ go build -o bin/forge ./cmd/forge
 
 Forge now ships a `manifest` command domain for starter manifest authoring and schema validation.
 
-- `forge manifest compose <blueprint> [application]`
+- `forge manifest compose`
+- `forge manifest compose terraform-github-repo [application]`
 - `forge manifest generate github-repo <name>`
 - `forge manifest generate hcp-tf-workspace <vcs-repo>`
 - `forge manifest generate aws-iam-provisioner <vcs-repo>`
 - `forge manifest generate launch-agent <name>`
 - `forge manifest validate <file-or-directory>`
 
-`forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose ...` is the higher-level authoring layer for workflows that need to emit several primitive manifests from one prompt flow.
+`forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose` lists the available higher-level blueprints, and each blueprint command documents how to emit several primitive manifests from one prompt flow.
 
 `forge manifest compose terraform-github-repo` starts with the same repo inputs as `forge manifest generate github-repo`, then prompts for one or more deployment environments, the AWS account for each selected environment, and the shared HCP Terraform plus IAM settings needed to fan out a full repo stack. It writes:
 
