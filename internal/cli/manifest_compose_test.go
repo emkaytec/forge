@@ -255,7 +255,7 @@ sso_account_id = 133124153984
 	}
 }
 
-func TestRunManifestComposeHelpDescribesBlueprints(t *testing.T) {
+func TestRunManifestComposeHelpListsBlueprintCommands(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -263,24 +263,16 @@ func TestRunManifestComposeHelpDescribesBlueprints(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "forge manifest compose [blueprint] [application]") {
+	if !strings.Contains(stdout.String(), "forge manifest compose [command]") {
 		t.Fatalf("expected compose usage path, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "Compose a blueprint into several primitive manifests") {
+	if !strings.Contains(stdout.String(), "Compose higher-level Forge manifest blueprints") {
 		t.Fatalf("expected compose help text, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "terraform-github-repo") {
-		t.Fatalf("expected compose example, got %q", stdout.String())
-	}
-
-	if !strings.Contains(stdout.String(), "Supported blueprints:") {
-		t.Fatalf("expected supported blueprints section, got %q", stdout.String())
-	}
-
-	if strings.Contains(stdout.String(), "(no commands registered)") {
-		t.Fatalf("did not expect empty commands section, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "terraform-github-repo") || !strings.Contains(stdout.String(), "github-repo, hcp-tf-workspace, and aws-iam-provisioner") {
+		t.Fatalf("expected blueprint command listing, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
@@ -296,7 +288,7 @@ func TestRunManifestComposeWithoutBlueprintShowsHelp(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "forge manifest compose [blueprint] [application]") {
+	if !strings.Contains(stdout.String(), "forge manifest compose [command]") {
 		t.Fatalf("expected compose usage path, got %q", stdout.String())
 	}
 
@@ -317,12 +309,41 @@ func TestRunManifestComposeHelpAliasShowsHelp(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "forge manifest compose [blueprint] [application]") {
+	if !strings.Contains(stdout.String(), "forge manifest compose [command]") {
 		t.Fatalf("expected compose usage path, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "Supported blueprints:") {
-		t.Fatalf("expected supported blueprints section, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "terraform-github-repo") {
+		t.Fatalf("expected blueprint listing, got %q", stdout.String())
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunManifestComposeTerraformGitHubRepoHelpDescribesCLIFlow(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run([]string{"manifest", "compose", "terraform-github-repo", "--help"}, &stdout, &stderr, "dev"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "forge manifest compose terraform-github-repo [application]") {
+		t.Fatalf("expected blueprint usage path, got %q", stdout.String())
+	}
+
+	for _, snippet := range []string{
+		"Compose a repo stack into github-repo, hcp-tf-workspace, and aws-iam-provisioner manifests",
+		"the application name and repository owner",
+		"<application>/github-repo.yaml",
+		"--environment",
+		"--account-id",
+	} {
+		if !strings.Contains(stdout.String(), snippet) {
+			t.Fatalf("expected blueprint help output to contain %q, got %q", snippet, stdout.String())
+		}
 	}
 
 	if stderr.Len() != 0 {
