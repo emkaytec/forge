@@ -191,7 +191,7 @@ func TestPrioritizeAWSProfilesMovesEnvironmentMatchesToFront(t *testing.T) {
 		{Name: "emkaytec-prod", AccountID: "333333333333"},
 	}
 
-	ordered, defaultIndex := prioritizeAWSProfiles(profiles, "dev")
+	ordered, defaultIndex := accounts.PrioritizeProfiles(profiles, "dev")
 	if defaultIndex != 0 {
 		t.Fatalf("defaultIndex = %d, want 0", defaultIndex)
 	}

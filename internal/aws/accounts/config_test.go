@@ -67,3 +67,43 @@ aws_access_key_id = test
 		t.Fatalf("sandbox account ID = %q, want empty", sandboxProfile.AccountID)
 	}
 }
+
+func TestPrioritizeProfilesMovesEnvironmentMatchesToFront(t *testing.T) {
+	t.Parallel()
+
+	profiles := []Profile{
+		{Name: "default", AccountID: "000000000000"},
+		{Name: "emkaytec-pre", AccountID: "222222222222"},
+		{Name: "emkaytec-dev", AccountID: "111111111111"},
+		{Name: "emkaytec-prod", AccountID: "333333333333"},
+	}
+
+	ordered, defaultIndex := PrioritizeProfiles(profiles, "dev")
+	if defaultIndex != 0 {
+		t.Fatalf("defaultIndex = %d, want 0", defaultIndex)
+	}
+
+	got := []string{
+		ordered[0].Name,
+		ordered[1].Name,
+		ordered[2].Name,
+		ordered[3].Name,
+	}
+	want := []string{"emkaytec-dev", "default", "emkaytec-pre", "emkaytec-prod"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ordered[%d] = %q, want %q (full order: %#v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestLabelIncludesAccountIDAvailability(t *testing.T) {
+	t.Parallel()
+
+	if got := Label(Profile{Name: "prod", AccountID: "123456789012"}); got != "prod (123456789012)" {
+		t.Fatalf("Label(with account) = %q", got)
+	}
+	if got := Label(Profile{Name: "sandbox"}); got != "sandbox (account ID unavailable)" {
+		t.Fatalf("Label(without account) = %q", got)
+	}
+}
