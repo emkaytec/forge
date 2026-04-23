@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-04-23
-- **Related**: Forge [ADR 0001](0001-workspace-and-package-layout.md), anvil ADR-0002
+- **Related**: Forge [ADR 0001](0001-workspace-and-package-layout.md)
 
 ## Context
 
