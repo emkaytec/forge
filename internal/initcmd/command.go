@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var newManager = func() oidcManager {
+var newOIDCManager = func() oidcManager {
 	return newAWSOIDCManager()
 }
 
@@ -19,12 +19,16 @@ func Command() *cobra.Command {
 	}
 
 	cmd.AddCommand(newAWSOIDCCommand())
+	cmd.AddCommand(newAWSStackSetsCommand())
 
 	return cmd
 }
 
 func newAWSOIDCCommand() *cobra.Command {
-	var accountID string
+	var (
+		accountProfiles []string
+		accountIDs      []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "aws-oidc",
@@ -35,41 +39,54 @@ This command is intentionally narrow: it bootstraps the shared providers once pe
 AWS account, but it does not create IAM roles. Those remain managed through
 AWSIAMProvisioner manifests.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager := newManager()
-			resolvedAccountID, err := manager.ResolveAccountID(cmd.Context(), accountID)
+			targets, err := resolveAWSAccountTargets(cmd.InOrStdin(), cmd.OutOrStdout(), accountProfiles, accountIDs)
 			if err != nil {
 				ui.Error(cmd.ErrOrStderr(), err.Error())
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Target AWS account: %s\n", resolvedAccountID)
-
-			var results []providerResult
-			spinner := ui.NewSpinner("Configuring AWS OIDC providers...")
-			err = spinner.RunWhile(cmd.OutOrStdout(), func() error {
-				providerResults, providerErr := manager.EnsureProviders(cmd.Context(), resolvedAccountID)
-				results = providerResults
-				return providerErr
-			})
-			if err != nil {
-				ui.Error(cmd.ErrOrStderr(), err.Error())
-				return err
-			}
-
-			for _, result := range results {
-				if result.Created {
-					ui.Success(cmd.OutOrStdout(), fmt.Sprintf("Created %s OIDC provider (%s)", result.Provider.Label, result.Provider.Issuer))
-					continue
+			manager := newOIDCManager()
+			for _, target := range targets {
+				resolved, err := manager.ResolveAccount(cmd.Context(), target)
+				if err != nil {
+					ui.Error(cmd.ErrOrStderr(), err.Error())
+					return err
 				}
 
-				ui.Success(cmd.OutOrStdout(), fmt.Sprintf("%s OIDC provider already exists (%s)", result.Provider.Label, result.Provider.Issuer))
+				fmt.Fprintf(cmd.OutOrStdout(), "Target AWS account: %s\n", resolved.display())
+
+				var results []providerResult
+				spinner := ui.NewSpinner(fmt.Sprintf("Configuring AWS OIDC providers for %s...", resolved.display()))
+				err = spinner.RunWhile(cmd.OutOrStdout(), func() error {
+					providerResults, providerErr := manager.EnsureProviders(cmd.Context(), resolved)
+					results = providerResults
+					return providerErr
+				})
+				if err != nil {
+					ui.Error(cmd.ErrOrStderr(), err.Error())
+					return err
+				}
+
+				for _, result := range results {
+					if result.Created {
+						ui.Success(cmd.OutOrStdout(), fmt.Sprintf("Created %s OIDC provider (%s)", result.Provider.Label, result.Provider.Issuer))
+						continue
+					}
+
+					ui.Success(cmd.OutOrStdout(), fmt.Sprintf("%s OIDC provider already exists (%s)", result.Provider.Label, result.Provider.Issuer))
+				}
+
+				if len(targets) > 1 {
+					fmt.Fprintln(cmd.OutOrStdout())
+				}
 			}
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&accountID, "account-id", "", "Target AWS account ID; defaults to the current AWS session account")
+	cmd.Flags().StringSliceVar(&accountProfiles, "account-profile", nil, "AWS shared-config profile to configure (repeat or comma-separate)")
+	cmd.Flags().StringSliceVar(&accountIDs, "account-id", nil, "AWS account ID to configure using the current AWS session or organization access role (repeat or comma-separate)")
 
 	return cmd
 }

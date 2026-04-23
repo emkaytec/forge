@@ -170,3 +170,98 @@ func TestListUserOrganizationsReturnsAccounts(t *testing.T) {
 		t.Fatalf("orgs = %+v, want emkaytec + some-other-org", orgs)
 	}
 }
+
+func TestRepositoryVariableMethodsUseActionsVariableEndpoints(t *testing.T) {
+	expected := []struct {
+		method string
+		path   string
+		body   RepositoryVariable
+		status int
+		resp   any
+	}{
+		{
+			method: http.MethodGet,
+			path:   "/repos/emkaytec/sample/actions/variables/AWS_PROVISIONER_ROLE_ARN_DEV",
+			status: http.StatusOK,
+			resp:   RepositoryVariable{Name: "AWS_PROVISIONER_ROLE_ARN_DEV", Value: "old-arn"},
+		},
+		{
+			method: http.MethodPost,
+			path:   "/repos/emkaytec/sample/actions/variables",
+			body:   RepositoryVariable{Name: "AWS_PROVISIONER_ROLE_ARN_DEV", Value: "new-arn"},
+			status: http.StatusCreated,
+			resp:   map[string]any{},
+		},
+		{
+			method: http.MethodPatch,
+			path:   "/repos/emkaytec/sample/actions/variables/AWS_PROVISIONER_ROLE_ARN_DEV",
+			body:   RepositoryVariable{Name: "AWS_PROVISIONER_ROLE_ARN_DEV", Value: "newer-arn"},
+			status: http.StatusNoContent,
+			resp:   map[string]any{},
+		},
+	}
+
+	var call int
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if call >= len(expected) {
+				t.Fatalf("unexpected extra request: %s %s", r.Method, r.URL.Path)
+			}
+
+			want := expected[call]
+			call++
+
+			if r.Method != want.method {
+				t.Fatalf("method = %q, want %q", r.Method, want.method)
+			}
+			if r.URL.Path != want.path {
+				t.Fatalf("path = %q, want %q", r.URL.Path, want.path)
+			}
+			if want.body.Name != "" {
+				var got RepositoryVariable
+				if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+					t.Fatalf("decode request body: %v", err)
+				}
+				if got != want.body {
+					t.Fatalf("body = %#v, want %#v", got, want.body)
+				}
+			}
+
+			return jsonResponse(t, want.status, want.resp), nil
+		}),
+	}
+
+	client := NewClient("https://example.test", "token", httpClient)
+
+	variable, err := client.GetRepositoryVariable(context.Background(), "emkaytec", "sample", "AWS_PROVISIONER_ROLE_ARN_DEV")
+	if err != nil {
+		t.Fatalf("GetRepositoryVariable() error = %v", err)
+	}
+	if variable.Name != "AWS_PROVISIONER_ROLE_ARN_DEV" || variable.Value != "old-arn" {
+		t.Fatalf("variable = %#v", variable)
+	}
+
+	if err := client.CreateRepositoryVariable(context.Background(), "emkaytec", "sample", RepositoryVariable{Name: "AWS_PROVISIONER_ROLE_ARN_DEV", Value: "new-arn"}); err != nil {
+		t.Fatalf("CreateRepositoryVariable() error = %v", err)
+	}
+	if err := client.UpdateRepositoryVariable(context.Background(), "emkaytec", "sample", "AWS_PROVISIONER_ROLE_ARN_DEV", RepositoryVariable{Name: "AWS_PROVISIONER_ROLE_ARN_DEV", Value: "newer-arn"}); err != nil {
+		t.Fatalf("UpdateRepositoryVariable() error = %v", err)
+	}
+
+	if call != len(expected) {
+		t.Fatalf("call count = %d, want %d", call, len(expected))
+	}
+}
+
+func TestIsAlreadyExistsRecognizesRepositoryVariableConflict(t *testing.T) {
+	err := &APIError{
+		StatusCode: http.StatusConflict,
+		Method:     http.MethodPost,
+		Path:       "/repos/emkaytec/sample/actions/variables",
+		Message:    "Already exists - Variable already exists",
+	}
+
+	if !IsAlreadyExists(err) {
+		t.Fatalf("IsAlreadyExists(%v) = false, want true", err)
+	}
+}

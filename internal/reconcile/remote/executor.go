@@ -14,6 +14,7 @@ import (
 // Executor routes remote-capable manifests to their per-kind Handler.
 type Executor struct {
 	handlers map[schema.Kind]Handler
+	bindings roleARNBindings
 }
 
 // NewExecutor returns a remote executor wired with the built-in remote
@@ -32,7 +33,10 @@ func newExecutor(handlers ...Handler) *Executor {
 	for _, h := range handlers {
 		m[h.Kind()] = h
 	}
-	return &Executor{handlers: m}
+	return &Executor{
+		handlers: m,
+		bindings: defaultRoleARNBindings(),
+	}
 }
 
 // Target reports TargetRemote.
@@ -84,6 +88,8 @@ func (e *Executor) Apply(ctx context.Context, plan *reconcile.Plan, opts reconci
 
 		result.Applied = append(result.Applied, change)
 	}
+
+	e.bindAWSProvisionerRoleARNs(ctx, result, plan)
 
 	return result, nil
 }
