@@ -100,13 +100,6 @@ func (h *Handler) DescribeChange(ctx context.Context, m *schema.Manifest, _ stri
 			Observed: workspace.TerraformVersion,
 		})
 	}
-	if spec.VCSRepo != "" && currentVCSIdentifier(workspace) != spec.VCSRepo {
-		change.Drift = append(change.Drift, reconcile.DriftField{
-			Path:     "spec.vcs_repo",
-			Desired:  spec.VCSRepo,
-			Observed: currentVCSIdentifier(workspace),
-		})
-	}
 	if projectID != "" && workspace.ProjectID != projectID {
 		change.Drift = append(change.Drift, reconcile.DriftField{
 			Path:     "spec.project",
@@ -150,6 +143,9 @@ func (h *Handler) Apply(ctx context.Context, change reconcile.ResourceChange, _ 
 	switch {
 	case hcpapi.IsNotFound(err):
 		workspace, err = client.CreateWorkspace(ctx, spec.Organization, spec.Name, request)
+		if hcpapi.IsAlreadyExists(err) {
+			workspace, err = client.GetWorkspace(ctx, spec.Organization, spec.Name)
+		}
 		if err != nil {
 			return err
 		}
@@ -175,9 +171,6 @@ func workspaceRequestFromSpec(spec *schema.HCPTFWorkspaceSpec, projectID string)
 	if spec.TerraformVersion != "" {
 		request.TerraformVersion = stringPtr(spec.TerraformVersion)
 	}
-	if spec.VCSRepo != "" {
-		request.VCSRepo = &hcpapi.WorkspaceVCSRepo{Identifier: spec.VCSRepo}
-	}
 	if projectID != "" {
 		request.ProjectID = stringPtr(projectID)
 	}
@@ -193,25 +186,15 @@ func workspaceUpdateRequest(workspace *hcpapi.Workspace, spec *schema.HCPTFWorks
 	if spec.TerraformVersion != "" && workspace.TerraformVersion != spec.TerraformVersion {
 		request.TerraformVersion = stringPtr(spec.TerraformVersion)
 	}
-	if spec.VCSRepo != "" && currentVCSIdentifier(workspace) != spec.VCSRepo {
-		request.VCSRepo = &hcpapi.WorkspaceVCSRepo{Identifier: spec.VCSRepo}
-	}
 	if projectID != "" && workspace.ProjectID != projectID {
 		request.ProjectID = stringPtr(projectID)
 	}
 
-	if request.ExecutionMode == nil && request.TerraformVersion == nil && request.VCSRepo == nil && request.ProjectID == nil {
+	if request.ExecutionMode == nil && request.TerraformVersion == nil && request.ProjectID == nil {
 		return nil
 	}
 
 	return request
-}
-
-func currentVCSIdentifier(workspace *hcpapi.Workspace) string {
-	if workspace.VCSRepo == nil {
-		return ""
-	}
-	return workspace.VCSRepo.Identifier
 }
 
 func describeAccountVariableDrift(ctx context.Context, client client, workspaceID string, spec *schema.HCPTFWorkspaceSpec) ([]reconcile.DriftField, error) {
@@ -258,9 +241,29 @@ func ensureAccountVariable(ctx context.Context, client client, workspaceID strin
 
 	current, ok := findWorkspaceVariable(variables, desired.Category, desired.Key)
 	if !ok {
-		return client.CreateVariable(ctx, workspaceID, desired)
+		if err := client.CreateVariable(ctx, workspaceID, desired); !hcpapi.IsAlreadyExists(err) {
+			return err
+		}
+		return updateExistingWorkspaceVariable(ctx, client, workspaceID, desired)
 	}
 
+	if workspaceVariableMatches(current, desired) {
+		return nil
+	}
+
+	return client.UpdateVariable(ctx, workspaceID, current.ID, desired)
+}
+
+func updateExistingWorkspaceVariable(ctx context.Context, client client, workspaceID string, desired hcpapi.WorkspaceVariable) error {
+	variables, err := client.ListVariables(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+
+	current, ok := findWorkspaceVariable(variables, desired.Category, desired.Key)
+	if !ok {
+		return fmt.Errorf("hcp terraform variable %q already exists but could not be read", desired.Key)
+	}
 	if workspaceVariableMatches(current, desired) {
 		return nil
 	}
@@ -284,6 +287,12 @@ func desiredAccountVariable(spec *schema.HCPTFWorkspaceSpec) (hcpapi.WorkspaceVa
 func findWorkspaceVariable(variables []hcpapi.WorkspaceVariable, category, key string) (hcpapi.WorkspaceVariable, bool) {
 	for _, variable := range variables {
 		if variable.Category == category && variable.Key == key {
+			return variable, true
+		}
+	}
+
+	for _, variable := range variables {
+		if variable.Key == key {
 			return variable, true
 		}
 	}

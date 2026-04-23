@@ -16,6 +16,7 @@ import (
 )
 
 type client interface {
+	UseAccount(accountID string)
 	OIDCProviderExists(ctx context.Context, arn string) (bool, error)
 	GetRole(ctx context.Context, roleName string) (*iamcli.Role, error)
 	CreateRole(ctx context.Context, roleName string, assumeRolePolicy string) error
@@ -63,6 +64,7 @@ func (h *Handler) DescribeChange(ctx context.Context, m *schema.Manifest, _ stri
 	}
 
 	client := h.newClient()
+	client.UseAccount(spec.AccountID)
 	assumeRolePolicy, err := desiredAssumeRolePolicy(spec)
 	if err != nil {
 		return reconcile.ResourceChange{}, err
@@ -122,6 +124,7 @@ func (h *Handler) Apply(ctx context.Context, change reconcile.ResourceChange, _ 
 	}
 
 	client := h.newClient()
+	client.UseAccount(spec.AccountID)
 	providerARN := oidcProviderARN(spec.AccountID, spec.OIDCProvider)
 	providerExists, err := client.OIDCProviderExists(ctx, providerARN)
 	if err != nil {

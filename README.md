@@ -101,10 +101,10 @@ Forge now ships a `manifest` command domain for starter manifest authoring and s
 `forge manifest compose terraform-github-repo` starts with the same repo inputs as `forge manifest generate github-repo`, then prompts for one or more deployment environments, the AWS account for each selected environment, and the shared HCP Terraform plus IAM settings needed to fan out a full repo stack. It writes:
 
 - `<application>/github-repo.yaml`
-- `<application>/hcp-tf-workspace-<env>.yml` for each selected environment
+- `<application>/hcp-tf-workspace-<env>.yaml` for each selected environment
 - `<application>/aws-iam-provisioner-<env>-gha.yaml` and `<application>/aws-iam-provisioner-<env>-tfc.yaml` for each selected environment
 
-Generated manifests write `<directory>/<resource>.yaml` under the current directory by default. `github-repo` uses the application name for the shared directory while keeping `metadata.name` owner-scoped. `hcp-tf-workspace` writes `hcp-tf-workspace-<env>.yml`, uses the repository name for the shared directory, and keeps `metadata.name` owner-scoped. `aws-iam-provisioner` uses the repository name for the shared directory, always writes both `aws-iam-provisioner-<env>-gha.yaml` and `aws-iam-provisioner-<env>-tfc.yaml`, keeps `metadata.name` owner-scoped, and uses the repository name for `spec.name`. Pass `--dir <relative-path>` to place generated files under a different relative directory.
+Generated manifests write `<directory>/<resource>.yaml` under the current directory by default. `github-repo` uses the application name for the shared directory while keeping `metadata.name` owner-scoped. `hcp-tf-workspace` writes `hcp-tf-workspace-<env>.yaml`, uses the repository name only to derive local manifest and workspace names, and keeps `metadata.name` owner-scoped. HCP Terraform workspaces are API-driven and are not connected to VCS by Forge. `aws-iam-provisioner` uses the repository name for the shared directory, always writes both `aws-iam-provisioner-<env>-gha.yaml` and `aws-iam-provisioner-<env>-tfc.yaml`, keeps `metadata.name` owner-scoped, and uses the repository name for `spec.name`. Pass `--dir <relative-path>` to place generated files under a different relative directory.
 
 The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
 
@@ -150,14 +150,27 @@ The Ansible repo path can be configured with `ansible.repo_path` in the config f
 Forge now ships an `init` command domain for one-time bootstrap work that is easier to do imperatively than declaratively.
 
 - `forge init aws-oidc`
-- `forge init aws-oidc --account-id 123456789012`
+- `forge init aws-oidc --account-profile dev-admin --account-profile prod-admin`
+- `forge init aws-stacksets`
+- `forge init aws-stacksets --account-id 111111111111 --account-id 222222222222`
 
-`forge init aws-oidc` uses the ambient AWS session to resolve the target account when `--account-id` is omitted, prints that account ID at the start of the run, and then ensures these shared IAM OIDC providers exist:
+`forge init aws-oidc` prompts for one or more AWS shared-config profiles when no account flags are provided. For each selected account, it ensures these shared IAM OIDC providers exist:
 
 - GitHub Actions at `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`
 - HCP Terraform at `https://app.terraform.io` with audience `aws.workload.identity`
 
-The command is idempotent. Re-running it reports whether each provider was created or already existed. It only bootstraps the identity providers; IAM roles and attached policies remain managed through `AWSIAMProvisioner` manifests.
+Use `--account-profile` to configure named AWS profiles non-interactively, or `--account-id` to target account IDs from the current AWS session or by assuming `OrganizationAccountAccessRole`.
+
+`forge init aws-stacksets` bootstraps the self-managed CloudFormation StackSet roles expected by the Terraform work in `emkaytec/anvil`. Run it while authenticated to the AWS management account that will own the StackSets. Forge creates or updates:
+
+- `AWSCloudFormationStackSetAdministrationRole` in the current management account
+- `AWSCloudFormationStackSetExecutionRole` in each selected target account
+- an inline administration-role policy scoped to the selected target execution roles
+- the execution-role managed policy attachments, defaulting to `arn:aws:iam::aws:policy/AdministratorAccess`
+
+The command prints the `stack_set_administration_role_arn` and `stack_set_execution_role_name` values to place in Anvil's ignored `terraform.tfvars`. The caller still needs permission to pass the administration role when Terraform creates StackSets.
+
+Both commands are idempotent. Re-running them reports whether providers or roles were created, updated, or already configured.
 
 ## Reconcile Workflows
 
@@ -173,8 +186,8 @@ Both commands build and print a plan first. They default to a dry plan and requi
 `forge reconcile remote` currently manages the staged remote kinds directly inside Forge while keeping the package layout ready for a later carve-out back into `anvil`:
 
 - `GitHubRepository` reads the target owner from `spec.owner` (a user or organization the authenticated token can manage). Forge resolves the GitHub token in this order: `GITHUB_TOKEN`, `GH_TOKEN`, then `gh auth token` — so an already authenticated `gh` CLI is enough for day-to-day use, while CI can keep setting `GITHUB_TOKEN` explicitly. `forge manifest generate github-repo` prompts for the owner and defaults to the current GitHub login when any of those sources is available.
-- `HCPTerraformWorkspace` uses `TF_TOKEN_app_terraform_io` or `TFE_TOKEN`.
-- `AWSIAMProvisioner` uses the ambient AWS CLI session and expects the shared OIDC providers from `forge init aws-oidc` to exist first.
+- `HCPTerraformWorkspace` resolves the HCP Terraform token from `TF_TOKEN_app_terraform_io`, then `TFE_TOKEN`, then the standard Terraform CLI credentials file written by `terraform login`. Forge creates API-driven workspaces without VCS connections; remote runs are expected to be kicked off externally, such as from GitHub Actions.
+- `AWSIAMProvisioner` uses the ambient AWS CLI session when it already belongs to `spec.account_id`. When the current AWS account differs from the target account, Forge assumes `OrganizationAccountAccessRole` in the target account before reading or mutating IAM. The shared OIDC providers from `forge init aws-oidc` must exist first.
 
 `forge reconcile local` remains the home for workstation-local kinds such as `LaunchAgent`, which do not belong in `anvil`.
 

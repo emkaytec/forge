@@ -44,9 +44,9 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 
 	expectedFiles := []string{
 		filepath.Join(tempDir, "forge-test-repo", "github-repo.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yml"),
+		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yaml"),
+		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yaml"),
+		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yaml"),
 		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
 		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
 		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
@@ -85,7 +85,7 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 		}
 	}
 
-	hcpWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"))
+	hcpWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(hcp workspace) error = %v", err)
 	}
@@ -96,7 +96,6 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 		`organization: "emkaytec"`,
 		`project: "platform"`,
 		`account_id: "427606711885"`,
-		`vcs_repo: "emkaytec/forge-test-repo"`,
 		"execution_mode: remote",
 		`terraform_version: "1.14.0"`,
 	} {
@@ -187,9 +186,9 @@ sso_account_id = 133124153984
 
 	for _, path := range []string{
 		filepath.Join(tempDir, "forge-test-repo", "github-repo.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yml"),
+		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yaml"),
+		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yaml"),
+		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yaml"),
 		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
 		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
 		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
@@ -202,7 +201,7 @@ sso_account_id = 133124153984
 		}
 	}
 
-	devWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yml"))
+	devWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(dev workspace) error = %v", err)
 	}
@@ -210,7 +209,7 @@ sso_account_id = 133124153984
 		t.Fatalf("dev workspace did not use the prioritized dev account: %q", string(devWorkspaceContents))
 	}
 
-	preWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"))
+	preWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(pre workspace) error = %v", err)
 	}
@@ -218,7 +217,7 @@ sso_account_id = 133124153984
 		t.Fatalf("pre workspace did not use the prioritized pre account: %q", string(preWorkspaceContents))
 	}
 
-	prodWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yml"))
+	prodWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(prod workspace) error = %v", err)
 	}

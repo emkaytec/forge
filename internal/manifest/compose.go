@@ -57,7 +57,7 @@ If the required inputs are not provided as flags, Forge prompts for:
 
 Forge writes:
   - <application>/github-repo.yaml
-  - <application>/hcp-tf-workspace-<env>.yml for each selected environment
+  - <application>/hcp-tf-workspace-<env>.yaml for each selected environment
   - <application>/aws-iam-provisioner-<env>-gha.yaml and
     <application>/aws-iam-provisioner-<env>-tfc.yaml for each selected environment`),
 		Example: strings.Join([]string{
@@ -223,7 +223,7 @@ func runComposeTerraformGitHubRepo(cmd *cobra.Command, args []string, options co
 			cmd,
 			applicationName,
 			"hcp-tf-workspace",
-			"hcp-tf-workspace-"+environmentValue+".yml",
+			"hcp-tf-workspace-"+environmentValue+".yaml",
 			options.outputDir,
 			renderHCPTFWorkspaceTemplateWithData(hcpTFWorkspaceTemplateData{
 				GeneratorCommand: generatorCommand,
@@ -233,7 +233,6 @@ func runComposeTerraformGitHubRepo(cmd *cobra.Command, args []string, options co
 				Organization:     organizationValue,
 				Project:          projectValue,
 				AccountID:        resolvedAccountIDs[environmentValue],
-				VCSRepo:          vcsRepo,
 				ExecutionMode:    executionModeValue,
 				TerraformVersion: terraformVersionValue,
 			}),

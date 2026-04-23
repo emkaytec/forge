@@ -28,7 +28,8 @@ const (
 	defaultGitHubVisibility        = "private"
 	defaultGitHubDefaultBranch     = "main"
 	defaultHCPTFOrganization       = "emkaytec"
-	defaultHCPTFProject            = "*"
+	defaultHCPTFProject            = ""
+	defaultHCPTFTrustProject       = "*"
 	defaultHCPTFExecutionMode      = "remote"
 	defaultHCPTFTerraformVersion   = "1.14.0"
 	defaultLaunchAgentScheduleKind = "interval"
@@ -58,7 +59,6 @@ type hcpTFWorkspaceTemplateData struct {
 	Organization     string
 	Project          string
 	AccountID        string
-	VCSRepo          string
 	ExecutionMode    string
 	TerraformVersion string
 }
@@ -226,7 +226,7 @@ func newGenerateHCPTFWorkspaceCommand() *cobra.Command {
 		Long: strings.TrimSpace(`Write a starter hcp-tf-workspace manifest.
 
 If the required inputs are not provided as flags, Forge prompts for:
-  1. the connected VCS repo (owner/repo)
+  1. the GitHub repo path used to derive names (owner/repo)
   2. the deployment environment and AWS account
   3. the HCP Terraform organization and optional project
   4. the execution mode and Terraform version
@@ -234,7 +234,8 @@ If the required inputs are not provided as flags, Forge prompts for:
 Forge derives a shared application directory from the repository name
 (for example, emkaytec/forge becomes forge), appends the selected
 environment to metadata.name and spec.name, and writes the
-manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
+manifest to <application-name>/hcp-tf-workspace-<env>.yaml. The
+workspace is API-driven and does not get a VCS connection.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate hcp-tf-workspace emkaytec/forge --environment dev --account-id 123456789012",
 			"  forge manifest generate hcp-tf-workspace --vcs-repo emkaytec/forge --environment pre --account-profile preprod-admin --organization emkaytec --project platform",
@@ -316,7 +317,6 @@ manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
 				Organization:     organizationValue,
 				Project:          projectValue,
 				AccountID:        accountIDValue,
-				VCSRepo:          vcsRepoValue,
 				ExecutionMode:    executionModeValue,
 				TerraformVersion: terraformVersionValue,
 			}
@@ -325,7 +325,7 @@ manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
 				cmd,
 				applicationName,
 				"hcp-tf-workspace",
-				"hcp-tf-workspace-"+environmentValue+".yml",
+				"hcp-tf-workspace-"+environmentValue+".yaml",
 				outputDir,
 				renderHCPTFWorkspaceTemplateWithData(data),
 			)
@@ -338,7 +338,7 @@ manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
 	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
 	cmd.Flags().StringVar(&organization, "organization", "", "HCP Terraform organization slug")
 	cmd.Flags().StringVar(&project, "project", "", "HCP Terraform project name")
-	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected GitHub repository path, e.g. emkaytec/forge")
+	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "GitHub repository path used to derive names, e.g. emkaytec/forge")
 	cmd.Flags().StringVar(&executionMode, "execution-mode", "", "Execution mode: remote, local, or agent")
 	cmd.Flags().StringVar(&terraformVersion, "terraform-version", "", "Pinned Terraform version for the workspace")
 
@@ -441,7 +441,7 @@ manifests are written as
 	}
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected GitHub repository path, e.g. emkaytec/forge")
+	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "GitHub repository path, e.g. emkaytec/forge")
 	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, or prod")
 	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS config profile to resolve the target account from")
 	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
@@ -1132,7 +1132,7 @@ func defaultAWSIAMProvisionerTargets(vcsRepo, environment string) (map[string]st
 
 	return map[string]string{
 		"github-actions": vcsRepo,
-		"hcp-terraform":  strings.Join([]string{owner, defaultHCPTFProject, workspaceName}, "/"),
+		"hcp-terraform":  strings.Join([]string{owner, defaultHCPTFTrustProject, workspaceName}, "/"),
 	}, nil
 }
 
@@ -1315,17 +1315,11 @@ func resolveAWSAccountIDWithLabels(p *promptSession, accountLabel, accountIDLabe
 		return inputPrompt(p, accountIDLabel, "", true)
 	}
 
-	orderedProfiles, defaultIndex := prioritizeAWSProfiles(profiles, preferredEnvironment)
+	orderedProfiles, defaultIndex := accounts.PrioritizeProfiles(profiles, preferredEnvironment)
 
 	options := make([]selectOption, 0, len(orderedProfiles)+1)
 	for _, profile := range orderedProfiles {
-		label := profile.Name
-		if profile.AccountID != "" {
-			label += " (" + profile.AccountID + ")"
-		} else {
-			label += " (account ID unavailable)"
-		}
-		options = append(options, selectOption{Label: label, Value: profile.Name})
+		options = append(options, selectOption{Label: accounts.Label(profile), Value: profile.Name})
 	}
 	options = append(options, selectOption{Label: "Enter an account ID manually", Value: "manual"})
 
@@ -1343,53 +1337,6 @@ func resolveAWSAccountIDWithLabels(p *promptSession, accountLabel, accountIDLabe
 	}
 
 	return inputPrompt(p, accountIDLabel, "", true)
-}
-
-func prioritizeAWSProfiles(profiles []accounts.Profile, environment string) ([]accounts.Profile, int) {
-	environment = strings.TrimSpace(strings.ToLower(environment))
-	if environment == "" || len(profiles) == 0 {
-		return profiles, 0
-	}
-
-	matched := make([]accounts.Profile, 0, len(profiles))
-	other := make([]accounts.Profile, 0, len(profiles))
-	for _, profile := range profiles {
-		if awsProfileMatchesEnvironment(profile.Name, environment) {
-			matched = append(matched, profile)
-			continue
-		}
-		other = append(other, profile)
-	}
-
-	if len(matched) == 0 {
-		return profiles, 0
-	}
-
-	ordered := make([]accounts.Profile, 0, len(profiles))
-	ordered = append(ordered, matched...)
-	ordered = append(ordered, other...)
-	return ordered, 0
-}
-
-func awsProfileMatchesEnvironment(name, environment string) bool {
-	name = strings.TrimSpace(strings.ToLower(name))
-	if name == "" || environment == "" {
-		return false
-	}
-	if name == environment {
-		return true
-	}
-
-	tokens := strings.FieldsFunc(name, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
-	})
-	for _, token := range tokens {
-		if token == environment {
-			return true
-		}
-	}
-
-	return false
 }
 
 func resolveOIDCProviders(p *promptSession, providerKeys []string) ([]oidc.Provider, error) {
@@ -1567,7 +1514,7 @@ func renderHCPTFWorkspaceTemplateWithData(data hcpTFWorkspaceTemplateData) strin
 apiVersion: forge/v1
 kind: HCPTerraformWorkspace
 metadata:
-  # metadata.name is the stable manifest identifier derived from the VCS repo
+  # metadata.name is the stable manifest identifier derived from the repo input
   # plus the selected environment suffix.
   name: %q
 spec:
@@ -1582,13 +1529,11 @@ spec:
   project: %q
   # account_id is written to the workspace as a terraform variable named account_id.
   account_id: %q
-  # vcs_repo is required and should use the connected GitHub identifier.
-  vcs_repo: %q
   # execution_mode must be remote, local, or agent.
   execution_mode: %s
   # terraform_version is optional and pins the workspace runtime.
   terraform_version: %q
-`, data.GeneratorCommand, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
+`, data.GeneratorCommand, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.ExecutionMode, data.TerraformVersion)
 }
 
 func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData) string {

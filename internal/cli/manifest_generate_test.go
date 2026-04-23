@@ -49,7 +49,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				"--execution-mode", "remote",
 				"--terraform-version", "1.14.0",
 			},
-			path: filepath.Join("sample-repo", "hcp-tf-workspace-dev.yml"),
+			path: filepath.Join("sample-repo", "hcp-tf-workspace-dev.yaml"),
 			snippets: []string{
 				"kind: HCPTerraformWorkspace",
 				"# execution_mode must be remote, local, or agent.",
@@ -58,7 +58,6 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				`environment: "dev"`,
 				`organization: "emkaytec"`,
 				`account_id: "123456789012"`,
-				`vcs_repo: "emkaytec/sample-repo"`,
 				"execution_mode: remote",
 			},
 		},
@@ -253,7 +252,7 @@ func TestRunManifestGenerateHCPTFWorkspaceSupportsNonInteractiveFlags(t *testing
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -267,7 +266,6 @@ func TestRunManifestGenerateHCPTFWorkspaceSupportsNonInteractiveFlags(t *testing
 		`organization: "emkaytec"`,
 		`project: "platform"`,
 		`account_id: "123456789012"`,
-		`vcs_repo: "emkaytec/forge"`,
 		"execution_mode: remote",
 		`terraform_version: "1.14.0"`,
 	} {
@@ -436,7 +434,7 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -451,7 +449,6 @@ sso_account_id = 123456789012
 		`organization: "emkaytec"`,
 		`project: "platform"`,
 		`account_id: "123456789012"`,
-		`vcs_repo: "emkaytec/forge"`,
 		"execution_mode: remote",
 		`terraform_version: "1.14.0"`,
 	} {
@@ -529,7 +526,7 @@ sso_account_id = 111111111111
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
+	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)

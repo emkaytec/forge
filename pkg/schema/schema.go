@@ -53,7 +53,6 @@ type HCPTFWorkspaceSpec struct {
 	Organization     string `yaml:"organization"`
 	Project          string `yaml:"project,omitempty"`
 	AccountID        string `yaml:"account_id,omitempty"`
-	VCSRepo          string `yaml:"vcs_repo,omitempty"`
 	ExecutionMode    string `yaml:"execution_mode"`
 	TerraformVersion string `yaml:"terraform_version,omitempty"`
 }

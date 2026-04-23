@@ -22,7 +22,6 @@ spec:
   organization: emkaytec
   project: platform
   account_id: "123456789012"
-  vcs_repo: github.com/emkaytec/forge
   execution_mode: agent
   terraform_version: 1.11.4
 `))
@@ -45,9 +44,6 @@ spec:
 		t.Fatalf("execution mode = %q, want agent", spec.ExecutionMode)
 	}
 
-	if spec.VCSRepo != "github.com/emkaytec/forge" {
-		t.Fatalf("vcs_repo = %q, want github.com/emkaytec/forge", spec.VCSRepo)
-	}
 	if spec.Environment != "dev" {
 		t.Fatalf("environment = %q, want dev", spec.Environment)
 	}
