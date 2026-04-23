@@ -11,3 +11,4 @@ These ADRs may be drafted with help from AI coding agents after extended discuss
 - [ADR 0001: Workspace and internal package layout](0001-workspace-and-package-layout.md)
 - [ADR 0002: Stage manifest schema in pkg/schema](0002-stage-manifest-schema-in-pkg.md)
 - [ADR 0003: Split reconcile by execution target](0003-split-reconcile-by-execution-target.md)
+- [ADR 0004: Use Go for the Forge CLI](0004-use-go-for-cli.md)
