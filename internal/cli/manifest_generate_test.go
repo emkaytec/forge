@@ -58,7 +58,6 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				`environment: "dev"`,
 				`organization: "emkaytec"`,
 				`account_id: "123456789012"`,
-				`vcs_repo: "emkaytec/sample-repo"`,
 				"execution_mode: remote",
 			},
 		},
@@ -267,13 +266,16 @@ func TestRunManifestGenerateHCPTFWorkspaceSupportsNonInteractiveFlags(t *testing
 		`organization: "emkaytec"`,
 		`project: "platform"`,
 		`account_id: "123456789012"`,
-		`vcs_repo: "emkaytec/forge"`,
 		"execution_mode: remote",
 		`terraform_version: "1.14.0"`,
 	} {
 		if !strings.Contains(contents, snippet) {
 			t.Fatalf("generated manifest did not contain %q: %q", snippet, contents)
 		}
+	}
+
+	if strings.Contains(contents, "vcs_repo") {
+		t.Fatalf("generated manifest should not contain vcs_repo: %q", contents)
 	}
 
 	if _, err := schema.DecodeManifest(rendered); err != nil {
@@ -423,7 +425,7 @@ sso_account_id = 123456789012
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
 		"emkaytec/forge", // vcs repo (required)
-		"1",              // environment: Development (index 1)
+		"2",              // environment: Development (index 2; 1 is "None")
 		"1",              // AWS account: dev-admin (index 1)
 		"emkaytec",       // organization (required)
 		"platform",       // project
@@ -451,7 +453,6 @@ sso_account_id = 123456789012
 		`organization: "emkaytec"`,
 		`project: "platform"`,
 		`account_id: "123456789012"`,
-		`vcs_repo: "emkaytec/forge"`,
 		"execution_mode: remote",
 		`terraform_version: "1.14.0"`,
 	} {
@@ -516,7 +517,7 @@ sso_account_id = 111111111111
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
 		"emkaytec/forge", // vcs repo
-		"1",              // environment: Development
+		"2",              // environment: Development (index 2; 1 is "None")
 		"",               // AWS account: accept default prioritized match
 		"emkaytec",       // organization
 		"platform",       // project
@@ -632,7 +633,7 @@ sso_account_id = 123456789012
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
 		"emkaytec/forge",
-		"3",
+		"4", // environment: Prod (index 4; 1 is "None")
 		"",
 		"arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, "\n") + "\n"))
@@ -642,8 +643,8 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-prod-gha.yaml")
-	rendered, err := os.ReadFile(githubPath)
+	manifestPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-prod.yaml")
+	rendered, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
@@ -657,35 +658,28 @@ sso_account_id = 123456789012
 		t.Fatalf("generated manifest did not contain prompted account_id: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "emkaytec-forge-prod-gha"`) {
+	if !strings.Contains(contents, `name: "emkaytec-forge-prod"`) {
 		t.Fatalf("generated manifest did not contain expected metadata name: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-prod-gha-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "forge-prod-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain expected role name: %q", contents)
 	}
 
-	if !strings.Contains(contents, `oidc_provider: "token.actions.githubusercontent.com"`) {
-		t.Fatalf("generated manifest did not contain expected provider: %q", contents)
+	if !strings.Contains(contents, `- oidc_provider: "token.actions.githubusercontent.com"`) {
+		t.Fatalf("generated manifest did not contain GitHub Actions provider trust: %q", contents)
 	}
 
 	if !strings.Contains(contents, `oidc_subject: "repo:emkaytec/forge:*"`) {
 		t.Fatalf("generated manifest did not contain expected GitHub subject: %q", contents)
 	}
 
-	hcpRendered, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-prod-tfc.yaml"))
-	if err != nil {
-		t.Fatalf("ReadFile(hcp) error = %v", err)
+	if !strings.Contains(contents, `- oidc_provider: "app.terraform.io"`) {
+		t.Fatalf("generated manifest did not contain HCP Terraform provider trust: %q", contents)
 	}
-	hcpContents := string(hcpRendered)
-	if !strings.Contains(hcpContents, `name: "emkaytec-forge-prod-tfc"`) {
-		t.Fatalf("generated HCP manifest did not contain expected metadata name: %q", hcpContents)
-	}
-	if !strings.Contains(hcpContents, `name: "forge-prod-tfc-provisioner-role"`) {
-		t.Fatalf("generated HCP manifest did not contain expected role name: %q", hcpContents)
-	}
-	if !strings.Contains(hcpContents, `oidc_subject: "organization:emkaytec:project:*:workspace:forge-prod:run_phase:*"`) {
-		t.Fatalf("generated HCP manifest did not contain expected subject: %q", hcpContents)
+
+	if !strings.Contains(contents, `oidc_subject: "organization:emkaytec:project:*:workspace:forge-prod:run_phase:*"`) {
+		t.Fatalf("generated manifest did not contain expected HCP subject: %q", contents)
 	}
 
 	if !strings.Contains(stdout.String(), "AWS account:") {
@@ -736,48 +730,34 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsNonInteractiveFlags(t *test
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-gha.yaml")
-	githubRendered, err := os.ReadFile(githubPath)
+	manifestPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev.yaml")
+	rendered, err := os.ReadFile(manifestPath)
 	if err != nil {
-		t.Fatalf("ReadFile(github) error = %v", err)
+		t.Fatalf("ReadFile() error = %v", err)
 	}
 
-	githubContents := string(githubRendered)
-	if !strings.Contains(githubContents, `name: "emkaytec-forge-dev-gha"`) {
-		t.Fatalf("generated manifest did not contain expected metadata name: %q", githubContents)
+	contents := string(rendered)
+	if !strings.Contains(contents, `name: "emkaytec-forge-dev"`) {
+		t.Fatalf("generated manifest did not contain expected metadata name: %q", contents)
 	}
-	if !strings.Contains(githubContents, `name: "forge-dev-gha-provisioner-role"`) {
-		t.Fatalf("generated manifest did not contain expected role name: %q", githubContents)
+	if !strings.Contains(contents, `name: "forge-dev-provisioner-role"`) {
+		t.Fatalf("generated manifest did not contain expected role name: %q", contents)
 	}
-	if !strings.Contains(githubContents, `oidc_subject: "repo:emkaytec/forge:*"`) {
-		t.Fatalf("generated manifest did not contain expected GitHub subject: %q", githubContents)
+	if !strings.Contains(contents, `- oidc_provider: "token.actions.githubusercontent.com"`) {
+		t.Fatalf("generated manifest did not contain GitHub Actions provider trust: %q", contents)
 	}
-
-	hcpPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-tfc.yaml")
-	hcpRendered, err := os.ReadFile(hcpPath)
-	if err != nil {
-		t.Fatalf("ReadFile(hcp) error = %v", err)
+	if !strings.Contains(contents, `oidc_subject: "repo:emkaytec/forge:*"`) {
+		t.Fatalf("generated manifest did not contain expected GitHub subject: %q", contents)
 	}
-
-	hcpContents := string(hcpRendered)
-	if !strings.Contains(hcpContents, `name: "emkaytec-forge-dev-tfc"`) {
-		t.Fatalf("generated manifest did not contain expected metadata name: %q", hcpContents)
+	if !strings.Contains(contents, `- oidc_provider: "app.terraform.io"`) {
+		t.Fatalf("generated manifest did not contain HCP Terraform provider trust: %q", contents)
+	}
+	if !strings.Contains(contents, `oidc_subject: "organization:emkaytec:project:*:workspace:forge-dev:run_phase:*"`) {
+		t.Fatalf("generated manifest did not contain expected HCP subject: %q", contents)
 	}
 
-	if !strings.Contains(hcpContents, `name: "forge-dev-tfc-provisioner-role"`) {
-		t.Fatalf("generated manifest did not contain expected role name: %q", hcpContents)
-	}
-
-	if !strings.Contains(hcpContents, `oidc_provider: "app.terraform.io"`) {
-		t.Fatalf("generated manifest did not contain expected HCP provider: %q", hcpContents)
-	}
-
-	if !strings.Contains(hcpContents, `oidc_subject: "organization:emkaytec:project:*:workspace:forge-dev:run_phase:*"`) {
-		t.Fatalf("generated manifest did not contain expected HCP subject: %q", hcpContents)
-	}
-
-	if !strings.Contains(stdout.String(), githubPath) || !strings.Contains(stdout.String(), hcpPath) {
-		t.Fatalf("expected success output to mention both manifest paths, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), manifestPath) {
+		t.Fatalf("expected success output to mention manifest path, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
@@ -802,18 +782,18 @@ func TestRunManifestGenerateAWSIAMProvisionerDerivesNamesFromVCSRepo(t *testing.
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, ".forge", "forge-app", "aws-iam-provisioner-dev-gha.yaml")
+	path := filepath.Join(tempDir, ".forge", "forge-app", "aws-iam-provisioner-dev.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 
 	contents := string(rendered)
-	if !strings.Contains(contents, `name: "emkaytec-forge-app-dev-gha"`) {
+	if !strings.Contains(contents, `name: "emkaytec-forge-app-dev"`) {
 		t.Fatalf("generated manifest did not contain normalized metadata name: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-app-dev-gha-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "forge-app-dev-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain normalized role name: %q", contents)
 	}
 
@@ -822,7 +802,7 @@ func TestRunManifestGenerateAWSIAMProvisionerDerivesNamesFromVCSRepo(t *testing.
 	}
 }
 
-func TestRunManifestGenerateAWSIAMProvisionerAlwaysWritesBothManifests(t *testing.T) {
+func TestRunManifestGenerateAWSIAMProvisionerWritesSingleManifestTrustedByBothProviders(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
@@ -839,38 +819,42 @@ func TestRunManifestGenerateAWSIAMProvisionerAlwaysWritesBothManifests(t *testin
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-gha.yaml")
-	githubRendered, err := os.ReadFile(githubPath)
+	manifestPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev.yaml")
+	rendered, err := os.ReadFile(manifestPath)
 	if err != nil {
-		t.Fatalf("ReadFile(github) error = %v", err)
+		t.Fatalf("ReadFile() error = %v", err)
 	}
 
-	githubContents := string(githubRendered)
-	if !strings.Contains(githubContents, `name: "emkaytec-forge-dev-gha"`) {
-		t.Fatalf("generated GitHub manifest did not contain suffixed metadata name: %q", githubContents)
+	contents := string(rendered)
+	if !strings.Contains(contents, `name: "emkaytec-forge-dev"`) {
+		t.Fatalf("generated manifest did not contain suffixed metadata name: %q", contents)
 	}
 
-	if !strings.Contains(githubContents, `name: "forge-dev-gha-provisioner-role"`) {
-		t.Fatalf("generated GitHub manifest did not contain suffixed role name: %q", githubContents)
+	if !strings.Contains(contents, `name: "forge-dev-provisioner-role"`) {
+		t.Fatalf("generated manifest did not contain suffixed role name: %q", contents)
 	}
 
-	hcpPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-tfc.yaml")
-	hcpRendered, err := os.ReadFile(hcpPath)
-	if err != nil {
-		t.Fatalf("ReadFile(hcp) error = %v", err)
+	if !strings.Contains(contents, `- oidc_provider: "token.actions.githubusercontent.com"`) {
+		t.Fatalf("generated manifest did not contain GitHub Actions trust: %q", contents)
 	}
 
-	hcpContents := string(hcpRendered)
-	if !strings.Contains(hcpContents, `name: "emkaytec-forge-dev-tfc"`) {
-		t.Fatalf("generated HCP manifest did not contain suffixed metadata name: %q", hcpContents)
+	if !strings.Contains(contents, `- oidc_provider: "app.terraform.io"`) {
+		t.Fatalf("generated manifest did not contain HCP Terraform trust: %q", contents)
 	}
 
-	if !strings.Contains(hcpContents, `name: "forge-dev-tfc-provisioner-role"`) {
-		t.Fatalf("generated HCP manifest did not contain suffixed role name: %q", hcpContents)
+	// Stale output files from the previous dual-manifest layout must not
+	// reappear — a single manifest is the whole contract now.
+	for _, stale := range []string{
+		filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-gha.yaml"),
+		filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-tfc.yaml"),
+	} {
+		if _, err := os.Stat(stale); err == nil {
+			t.Fatalf("unexpected stale manifest written: %s", stale)
+		}
 	}
 
-	if !strings.Contains(stdout.String(), githubPath) || !strings.Contains(stdout.String(), hcpPath) {
-		t.Fatalf("expected success output to mention both manifest paths, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), manifestPath) {
+		t.Fatalf("expected success output to mention manifest path, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
@@ -878,7 +862,7 @@ func TestRunManifestGenerateAWSIAMProvisionerAlwaysWritesBothManifests(t *testin
 	}
 }
 
-func TestRunManifestGenerateHelpDocumentsRepoDrivenDualManifestFlow(t *testing.T) {
+func TestRunManifestGenerateHelpDocumentsRepoDrivenSingleManifestFlow(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -894,7 +878,7 @@ func TestRunManifestGenerateHelpDocumentsRepoDrivenDualManifestFlow(t *testing.T
 		t.Fatalf("did not expect application argument help, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "the connected VCS repo") || !strings.Contains(stdout.String(), "always writes both GitHub Actions and HCP Terraform provisioner manifests") {
+	if !strings.Contains(stdout.String(), "the connected VCS repo") || !strings.Contains(stdout.String(), "single provisioner manifest whose IAM role trusts both") {
 		t.Fatalf("expected prompt-flow help text, got %q", stdout.String())
 	}
 
@@ -909,8 +893,8 @@ func TestRunManifestGenerateHelpDocumentsRepoDrivenDualManifestFlow(t *testing.T
 		t.Fatalf("expected non-interactive example usage, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "aws-iam-provisioner-<env>-gha.yaml") || !strings.Contains(stdout.String(), "aws-iam-provisioner-<env>-tfc.yaml") {
-		t.Fatalf("expected provider-specific output note, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "aws-iam-provisioner[-<env>].yaml") {
+		t.Fatalf("expected single-manifest output note, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
@@ -937,7 +921,7 @@ func TestRunManifestGenerateAWSIAMProvisionerTruncatesRoleNameToAWSLimit(t *test
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, ".forge", longApplication, "aws-iam-provisioner-dev-gha.yaml")
+	path := filepath.Join(tempDir, ".forge", longApplication, "aws-iam-provisioner-dev.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -957,8 +941,8 @@ func TestRunManifestGenerateAWSIAMProvisionerTruncatesRoleNameToAWSLimit(t *test
 		t.Fatalf("generated role name length = %d, want %d (%q)", len([]rune(spec.Name)), schema.AWSIAMRoleNameMaxLength, spec.Name)
 	}
 
-	if !strings.HasSuffix(spec.Name, "-dev-gha-provisioner-role") {
-		t.Fatalf("generated role name = %q, want dev gha suffix", spec.Name)
+	if !strings.HasSuffix(spec.Name, "-dev-provisioner-role") {
+		t.Fatalf("generated role name = %q, want dev suffix", spec.Name)
 	}
 
 	if stderr.Len() != 0 {
@@ -987,7 +971,7 @@ sso_account_id = 123456789012
 	root := newRootCommand(&stdout, &stderr, "dev")
 	root.SetIn(strings.NewReader(strings.Join([]string{
 		"emkaytec/ForgeApp",
-		"3",
+		"4", // environment: Prod (index 4; 1 is "None")
 		"",
 		"arn:aws:iam::aws:policy/ReadOnlyAccess",
 	}, "\n") + "\n"))
@@ -997,18 +981,18 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, ".forge", "forge-app", "aws-iam-provisioner-prod-gha.yaml")
+	path := filepath.Join(tempDir, ".forge", "forge-app", "aws-iam-provisioner-prod.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 
 	contents := string(rendered)
-	if !strings.Contains(contents, `name: "emkaytec-forge-app-prod-gha"`) {
+	if !strings.Contains(contents, `name: "emkaytec-forge-app-prod"`) {
 		t.Fatalf("generated manifest did not contain normalized metadata name: %q", contents)
 	}
 
-	if !strings.Contains(contents, `name: "forge-app-prod-gha-provisioner-role"`) {
+	if !strings.Contains(contents, `name: "forge-app-prod-provisioner-role"`) {
 		t.Fatalf("generated manifest did not contain normalized role name: %q", contents)
 	}
 

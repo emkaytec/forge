@@ -47,12 +47,9 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-dev.yml"),
 		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-pre.yml"),
 		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-prod.yml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-tfc.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-gha.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod.yaml"),
 	}
 
 	for _, path := range expectedFiles {
@@ -96,7 +93,6 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 		`organization: "emkaytec"`,
 		`project: "platform"`,
 		`account_id: "427606711885"`,
-		`vcs_repo: "emkaytec/forge-test-repo"`,
 		"execution_mode: remote",
 		`terraform_version: "1.14.0"`,
 	} {
@@ -105,15 +101,21 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 		}
 	}
 
-	awsProvisionerContents, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"))
+	if strings.Contains(string(hcpWorkspaceContents), "vcs_repo") {
+		t.Fatalf("hcp workspace manifest should not contain vcs_repo: %q", string(hcpWorkspaceContents))
+	}
+
+	awsProvisionerContents, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(aws provisioner) error = %v", err)
 	}
 	for _, snippet := range []string{
-		`name: "emkaytec-forge-test-repo-prod-tfc"`,
-		`name: "forge-test-repo-prod-tfc-provisioner-role"`,
+		`name: "emkaytec-forge-test-repo-prod"`,
+		`name: "forge-test-repo-prod-provisioner-role"`,
 		`account_id: "133124153984"`,
-		`oidc_provider: "app.terraform.io"`,
+		`- oidc_provider: "token.actions.githubusercontent.com"`,
+		`oidc_subject: "repo:emkaytec/forge-test-repo:*"`,
+		`- oidc_provider: "app.terraform.io"`,
 		`oidc_subject: "organization:emkaytec:project:*:workspace:forge-test-repo-prod:run_phase:*"`,
 		`- "arn:aws:iam::aws:policy/ReadOnlyAccess"`,
 	} {
@@ -190,12 +192,9 @@ sso_account_id = 133124153984
 		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-dev.yml"),
 		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-pre.yml"),
 		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-prod.yml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-tfc.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-gha.yaml"),
-		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod.yaml"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected generated file %q: %v", path, err)
