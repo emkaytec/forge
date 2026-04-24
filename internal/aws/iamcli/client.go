@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -14,6 +15,7 @@ import (
 type runner interface {
 	LookPath(file string) (string, error)
 	Output(ctx context.Context, name string, args ...string) ([]byte, error)
+	OutputWithEnv(ctx context.Context, env []string, name string, args ...string) ([]byte, error)
 }
 
 type execRunner struct{}
@@ -23,7 +25,18 @@ func (execRunner) LookPath(file string) (string, error) {
 }
 
 func (execRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return execRunner{}.output(ctx, nil, name, args...)
+}
+
+func (execRunner) OutputWithEnv(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
+	return execRunner{}.output(ctx, env, name, args...)
+}
+
+func (execRunner) output(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -64,7 +77,11 @@ func (e *commandError) Unwrap() error {
 
 // Client is a small AWS CLI adapter for the IAM and STS calls Forge needs.
 type Client struct {
-	runner runner
+	runner             runner
+	profileName        string
+	targetAccountID    string
+	callerAccountID    string
+	assumedCredentials map[string]awsCredentials
 }
 
 // Option configures a Client.
@@ -79,11 +96,44 @@ func WithRunner(runner runner) Option {
 
 // New returns a Client backed by the ambient AWS CLI configuration.
 func New(opts ...Option) *Client {
-	client := &Client{runner: execRunner{}}
+	client := &Client{
+		runner:             execRunner{},
+		assumedCredentials: map[string]awsCredentials{},
+	}
 	for _, opt := range opts {
 		opt(client)
 	}
 	return client
+}
+
+func (c *Client) ForAccount(accountID string) *Client {
+	clone := *c
+	clone.UseAccount(accountID)
+	if clone.assumedCredentials == nil {
+		clone.assumedCredentials = map[string]awsCredentials{}
+	}
+	return &clone
+}
+
+func (c *Client) ForProfile(profileName string) *Client {
+	clone := *c
+	clone.UseProfile(profileName)
+	if clone.assumedCredentials == nil {
+		clone.assumedCredentials = map[string]awsCredentials{}
+	}
+	return &clone
+}
+
+func (c *Client) UseProfile(profileName string) {
+	c.profileName = strings.TrimSpace(profileName)
+	c.callerAccountID = ""
+}
+
+func (c *Client) UseAccount(accountID string) {
+	c.targetAccountID = strings.TrimSpace(accountID)
+	if c.assumedCredentials == nil {
+		c.assumedCredentials = map[string]awsCredentials{}
+	}
 }
 
 // EnsureCLI verifies that the AWS CLI is installed.
@@ -100,7 +150,7 @@ func (c *Client) GetCallerIdentity(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	output, err := c.runner.Output(ctx, "aws", "sts", "get-caller-identity", "--output", "json")
+	output, err := c.baseOutput(ctx, "sts", "get-caller-identity", "--output", "json")
 	if err != nil {
 		return "", err
 	}
@@ -118,13 +168,124 @@ func (c *Client) GetCallerIdentity(ctx context.Context) (string, error) {
 	return strings.TrimSpace(response.Account), nil
 }
 
-// OIDCProviderExists reports whether the provider ARN exists in IAM.
-func (c *Client) OIDCProviderExists(ctx context.Context, arn string) (bool, error) {
+func (c *Client) output(ctx context.Context, args ...string) ([]byte, error) {
 	if err := c.EnsureCLI(); err != nil {
-		return false, err
+		return nil, err
 	}
 
-	_, err := c.runner.Output(ctx, "aws", "iam", "get-open-id-connect-provider", "--open-id-connect-provider-arn", arn, "--output", "json")
+	env, err := c.targetAccountEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(env) == 0 {
+		return c.baseOutput(ctx, args...)
+	}
+
+	return c.runner.OutputWithEnv(ctx, env, "aws", args...)
+}
+
+func (c *Client) baseOutput(ctx context.Context, args ...string) ([]byte, error) {
+	env := c.profileEnv()
+	if len(env) == 0 {
+		return c.runner.Output(ctx, "aws", args...)
+	}
+	return c.runner.OutputWithEnv(ctx, env, "aws", args...)
+}
+
+func (c *Client) profileEnv() []string {
+	if strings.TrimSpace(c.profileName) == "" {
+		return nil
+	}
+	return []string{"AWS_PROFILE=" + strings.TrimSpace(c.profileName)}
+}
+
+func (c *Client) targetAccountEnv(ctx context.Context) ([]string, error) {
+	targetAccountID := strings.TrimSpace(c.targetAccountID)
+	if targetAccountID == "" {
+		return nil, nil
+	}
+
+	callerAccountID, err := c.cachedCallerAccountID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if callerAccountID == targetAccountID {
+		return nil, nil
+	}
+
+	credentials, ok := c.assumedCredentials[targetAccountID]
+	if !ok {
+		credentials, err = c.assumeOrganizationAccountAccessRole(ctx, targetAccountID)
+		if err != nil {
+			return nil, err
+		}
+		c.assumedCredentials[targetAccountID] = credentials
+	}
+
+	return credentials.env(), nil
+}
+
+func (c *Client) cachedCallerAccountID(ctx context.Context) (string, error) {
+	if strings.TrimSpace(c.callerAccountID) != "" {
+		return c.callerAccountID, nil
+	}
+
+	accountID, err := c.GetCallerIdentity(ctx)
+	if err != nil {
+		return "", err
+	}
+	c.callerAccountID = accountID
+	return accountID, nil
+}
+
+type awsCredentials struct {
+	AccessKeyID     string `json:"AccessKeyId"`
+	SecretAccessKey string `json:"SecretAccessKey"`
+	SessionToken    string `json:"SessionToken"`
+}
+
+func (c awsCredentials) env() []string {
+	return []string{
+		"AWS_ACCESS_KEY_ID=" + c.AccessKeyID,
+		"AWS_SECRET_ACCESS_KEY=" + c.SecretAccessKey,
+		"AWS_SESSION_TOKEN=" + c.SessionToken,
+	}
+}
+
+func (c *Client) assumeOrganizationAccountAccessRole(ctx context.Context, accountID string) (awsCredentials, error) {
+	output, err := c.baseOutput(
+		ctx,
+		"sts",
+		"assume-role",
+		"--role-arn",
+		fmt.Sprintf("arn:aws:iam::%s:role/OrganizationAccountAccessRole", accountID),
+		"--role-session-name",
+		"forge-reconcile",
+		"--output",
+		"json",
+	)
+	if err != nil {
+		return awsCredentials{}, err
+	}
+
+	var response struct {
+		Credentials awsCredentials `json:"Credentials"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		return awsCredentials{}, fmt.Errorf("decode assume role response: %w", err)
+	}
+
+	credentials := response.Credentials
+	if strings.TrimSpace(credentials.AccessKeyID) == "" || strings.TrimSpace(credentials.SecretAccessKey) == "" || strings.TrimSpace(credentials.SessionToken) == "" {
+		return awsCredentials{}, fmt.Errorf("assume role response did not include complete temporary credentials")
+	}
+
+	return credentials, nil
+}
+
+// OIDCProviderExists reports whether the provider ARN exists in IAM.
+func (c *Client) OIDCProviderExists(ctx context.Context, arn string) (bool, error) {
+	_, err := c.output(ctx, "iam", "get-open-id-connect-provider", "--open-id-connect-provider-arn", arn, "--output", "json")
 	if err == nil {
 		return true, nil
 	}
@@ -137,10 +298,6 @@ func (c *Client) OIDCProviderExists(ctx context.Context, arn string) (bool, erro
 
 // CreateOIDCProvider creates an OIDC provider and returns its ARN.
 func (c *Client) CreateOIDCProvider(ctx context.Context, issuerURL string, audiences []string) (string, error) {
-	if err := c.EnsureCLI(); err != nil {
-		return "", err
-	}
-
 	args := []string{
 		"iam",
 		"create-open-id-connect-provider",
@@ -154,7 +311,7 @@ func (c *Client) CreateOIDCProvider(ctx context.Context, issuerURL string, audie
 		args = append(args, audiences...)
 	}
 
-	output, err := c.runner.Output(ctx, "aws", args...)
+	output, err := c.output(ctx, args...)
 	if err != nil {
 		return "", err
 	}
@@ -180,29 +337,25 @@ type Role struct {
 
 // GetRole fetches one IAM role by name.
 func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
-	if err := c.EnsureCLI(); err != nil {
-		return nil, err
-	}
-
-	output, err := c.runner.Output(ctx, "aws", "iam", "get-role", "--role-name", roleName, "--output", "json")
+	output, err := c.output(ctx, "iam", "get-role", "--role-name", roleName, "--output", "json")
 	if err != nil {
 		return nil, err
 	}
 
 	var response struct {
 		Role struct {
-			RoleName                 string `json:"RoleName"`
-			ARN                      string `json:"Arn"`
-			AssumeRolePolicyDocument string `json:"AssumeRolePolicyDocument"`
+			RoleName                 string          `json:"RoleName"`
+			ARN                      string          `json:"Arn"`
+			AssumeRolePolicyDocument json.RawMessage `json:"AssumeRolePolicyDocument"`
 		} `json:"Role"`
 	}
 	if err := json.Unmarshal(output, &response); err != nil {
 		return nil, fmt.Errorf("decode get role response: %w", err)
 	}
 
-	policy, err := url.QueryUnescape(response.Role.AssumeRolePolicyDocument)
+	policy, err := decodeAssumeRolePolicyDocument(response.Role.AssumeRolePolicyDocument)
 	if err != nil {
-		policy = response.Role.AssumeRolePolicyDocument
+		return nil, fmt.Errorf("decode assume role policy document: %w", err)
 	}
 
 	return &Role{
@@ -212,15 +365,36 @@ func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
 	}, nil
 }
 
-// CreateRole creates a role with the given trust policy.
-func (c *Client) CreateRole(ctx context.Context, roleName string, assumeRolePolicy string) error {
-	if err := c.EnsureCLI(); err != nil {
-		return err
+func decodeAssumeRolePolicyDocument(raw json.RawMessage) (string, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", nil
 	}
 
-	_, err := c.runner.Output(
+	var encoded string
+	if err := json.Unmarshal(raw, &encoded); err == nil {
+		policy, unescapeErr := url.QueryUnescape(encoded)
+		if unescapeErr != nil {
+			return encoded, nil
+		}
+		return policy, nil
+	}
+
+	var document any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return "", err
+	}
+	normalized, err := json.Marshal(document)
+	if err != nil {
+		return "", err
+	}
+	return string(normalized), nil
+}
+
+// CreateRole creates a role with the given trust policy.
+func (c *Client) CreateRole(ctx context.Context, roleName string, assumeRolePolicy string) error {
+	_, err := c.output(
 		ctx,
-		"aws",
 		"iam",
 		"create-role",
 		"--role-name",
@@ -235,13 +409,8 @@ func (c *Client) CreateRole(ctx context.Context, roleName string, assumeRolePoli
 
 // UpdateAssumeRolePolicy replaces the trust policy for an existing role.
 func (c *Client) UpdateAssumeRolePolicy(ctx context.Context, roleName string, assumeRolePolicy string) error {
-	if err := c.EnsureCLI(); err != nil {
-		return err
-	}
-
-	_, err := c.runner.Output(
+	_, err := c.output(
 		ctx,
-		"aws",
 		"iam",
 		"update-assume-role-policy",
 		"--role-name",
@@ -254,11 +423,7 @@ func (c *Client) UpdateAssumeRolePolicy(ctx context.Context, roleName string, as
 
 // ListAttachedRolePolicies returns the attached managed policy ARNs for a role.
 func (c *Client) ListAttachedRolePolicies(ctx context.Context, roleName string) ([]string, error) {
-	if err := c.EnsureCLI(); err != nil {
-		return nil, err
-	}
-
-	output, err := c.runner.Output(ctx, "aws", "iam", "list-attached-role-policies", "--role-name", roleName, "--output", "json")
+	output, err := c.output(ctx, "iam", "list-attached-role-policies", "--role-name", roleName, "--output", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -282,25 +447,58 @@ func (c *Client) ListAttachedRolePolicies(ctx context.Context, roleName string) 
 
 // AttachRolePolicy attaches one managed policy ARN to the role.
 func (c *Client) AttachRolePolicy(ctx context.Context, roleName string, policyARN string) error {
-	if err := c.EnsureCLI(); err != nil {
-		return err
+	_, err := c.output(ctx, "iam", "attach-role-policy", "--role-name", roleName, "--policy-arn", policyARN)
+	return err
+}
+
+// GetRolePolicy fetches one inline role policy document.
+func (c *Client) GetRolePolicy(ctx context.Context, roleName string, policyName string) (string, error) {
+	output, err := c.output(ctx, "iam", "get-role-policy", "--role-name", roleName, "--policy-name", policyName, "--output", "json")
+	if err != nil {
+		return "", err
 	}
 
-	_, err := c.runner.Output(ctx, "aws", "iam", "attach-role-policy", "--role-name", roleName, "--policy-arn", policyARN)
+	var response struct {
+		PolicyDocument json.RawMessage `json:"PolicyDocument"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		return "", fmt.Errorf("decode get role policy response: %w", err)
+	}
+
+	policy, err := decodeAssumeRolePolicyDocument(response.PolicyDocument)
+	if err != nil {
+		return "", fmt.Errorf("decode role policy document: %w", err)
+	}
+	return policy, nil
+}
+
+// PutRolePolicy creates or replaces one inline policy on a role.
+func (c *Client) PutRolePolicy(ctx context.Context, roleName string, policyName string, policyDocument string) error {
+	_, err := c.output(
+		ctx,
+		"iam",
+		"put-role-policy",
+		"--role-name",
+		roleName,
+		"--policy-name",
+		policyName,
+		"--policy-document",
+		policyDocument,
+	)
 	return err
 }
 
 // DetachRolePolicy detaches one managed policy ARN from the role.
 func (c *Client) DetachRolePolicy(ctx context.Context, roleName string, policyARN string) error {
-	if err := c.EnsureCLI(); err != nil {
-		return err
-	}
-
-	_, err := c.runner.Output(ctx, "aws", "iam", "detach-role-policy", "--role-name", roleName, "--policy-arn", policyARN)
+	_, err := c.output(ctx, "iam", "detach-role-policy", "--role-name", roleName, "--policy-arn", policyARN)
 	return err
 }
 
 func isNoSuchEntity(err error) bool {
+	if err == nil {
+		return false
+	}
+
 	var commandErr *commandError
 	if errors.As(err, &commandErr) {
 		return strings.Contains(commandErr.Stderr, "NoSuchEntity")

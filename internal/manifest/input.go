@@ -24,7 +24,7 @@ type inputModel struct {
 func inputPrompt(p *promptSession, label, defaultValue string, required bool) (string, error) {
 	p.runPrelude()
 
-	if isInteractiveTerminal(p.in, p.out) {
+	if ui.IsInteractiveTerminal(p.in, p.out) {
 		return runTerminalInput(p.out, label, p.labelWidth, defaultValue, required)
 	}
 

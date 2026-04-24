@@ -40,8 +40,7 @@
 //   - GitHubRepository: visibility, description, default branch,
 //     and optional topics.
 //   - HCPTerraformWorkspace: execution mode, optional Terraform
-//     version, optional project binding, and optional VCS repository
-//     identifier.
+//     version, optional project binding, and account_id variable.
 //   - AWSIAMProvisioner: OIDC trust policy plus optional exact
 //     managed-policy attachments for the role.
 package reconcile

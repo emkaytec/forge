@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 var roleARNAccountPattern = regexp.MustCompile(`^arn:aws:iam::([0-9]{12}):`)
@@ -71,6 +72,68 @@ func FindProfile(profiles []Profile, name string) (Profile, bool) {
 	}
 
 	return Profile{}, false
+}
+
+// Label renders a profile the same way Forge's AWS account selectors display it.
+func Label(profile Profile) string {
+	label := profile.Name
+	if profile.AccountID != "" {
+		label += " (" + profile.AccountID + ")"
+	} else {
+		label += " (account ID unavailable)"
+	}
+	return label
+}
+
+// PrioritizeProfiles moves profiles whose names match the preferred environment
+// to the front while preserving the existing order within each group.
+func PrioritizeProfiles(profiles []Profile, environment string) ([]Profile, int) {
+	environment = strings.TrimSpace(strings.ToLower(environment))
+	if environment == "" || len(profiles) == 0 {
+		return profiles, 0
+	}
+
+	matched := make([]Profile, 0, len(profiles))
+	other := make([]Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		if ProfileMatchesEnvironment(profile.Name, environment) {
+			matched = append(matched, profile)
+			continue
+		}
+		other = append(other, profile)
+	}
+
+	if len(matched) == 0 {
+		return profiles, 0
+	}
+
+	ordered := make([]Profile, 0, len(profiles))
+	ordered = append(ordered, matched...)
+	ordered = append(ordered, other...)
+	return ordered, 0
+}
+
+// ProfileMatchesEnvironment reports whether a profile name contains an
+// environment token such as dev, pre, or prod.
+func ProfileMatchesEnvironment(name, environment string) bool {
+	name = strings.TrimSpace(strings.ToLower(name))
+	environment = strings.TrimSpace(strings.ToLower(environment))
+	if name == "" || environment == "" {
+		return false
+	}
+	if name == environment {
+		return true
+	}
+
+	tokens := strings.FieldsFunc(name, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	})
+	for _, token := range tokens {
+		if token == environment {
+			return true
+		}
+	}
+	return false
 }
 
 func loadFile(path string, configFile bool, profiles map[string]*Profile) error {
