@@ -128,7 +128,7 @@ If the required inputs are not provided as flags, Forge prompts for:
   4. an optional description and topic list
   5. the default branch
 
-Forge writes the manifest to <application>/github-repo.yaml under the application directory.`),
+Forge writes the manifest to .forge/<application>/github-repo.yaml under the application directory.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate github-repo forge",
 			"  forge manifest generate github-repo --application forge --owner emkaytec --visibility private --default-branch main",
@@ -234,7 +234,7 @@ If the required inputs are not provided as flags, Forge prompts for:
 Forge derives a shared application directory from the repository name
 (for example, emkaytec/forge becomes forge), appends the selected
 environment to metadata.name and spec.name, and writes the
-manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
+manifest to .forge/<application-name>/hcp-tf-workspace-<env>.yml.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate hcp-tf-workspace emkaytec/forge --environment dev --account-id 123456789012",
 			"  forge manifest generate hcp-tf-workspace --vcs-repo emkaytec/forge --environment pre --account-profile preprod-admin --organization emkaytec --project platform",
@@ -333,7 +333,7 @@ manifest to <application-name>/hcp-tf-workspace-<env>.yml.`),
 	}
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, or prod")
+	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, prod, or admin")
 	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS shared-config profile to derive the account ID from")
 	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
 	cmd.Flags().StringVar(&organization, "organization", "", "HCP Terraform organization slug")
@@ -370,8 +370,8 @@ The shared application directory comes from the repository name, while the
 manifest and role names stay owner-scoped with the environment suffix. The HCP
 Terraform trust subject is derived as <owner>/*/<repo>-<env> by default, and the
 manifests are written as
-<application>/aws-iam-provisioner-<env>-gha.yaml and
-<application>/aws-iam-provisioner-<env>-tfc.yaml.`),
+.forge/<application>/aws-iam-provisioner-<env>-gha.yaml and
+.forge/<application>/aws-iam-provisioner-<env>-tfc.yaml.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate aws-iam-provisioner emkaytec/forge --environment dev --account-id 123456789012 --managed-policy arn:aws:iam::aws:policy/ReadOnlyAccess",
 			"  forge manifest generate aws-iam-provisioner --vcs-repo emkaytec/forge --environment prod --account-profile prod-admin",
@@ -442,7 +442,7 @@ manifests are written as
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
 	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected GitHub repository path, e.g. emkaytec/forge")
-	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, or prod")
+	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, prod, or admin")
 	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS config profile to resolve the target account from")
 	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
 	cmd.Flags().StringSliceVar(&managedPolicy, "managed-policy", nil, "Managed policy ARN to attach (repeat or comma-separate)")
@@ -473,7 +473,7 @@ If the required inputs are not provided as flags, Forge prompts for:
   3. the schedule type and its parameters
   4. whether the agent should also run at load
 
-Forge writes the manifest to <application>/launch-agent.yaml under the application directory.`),
+Forge writes the manifest to .forge/<application>/launch-agent.yaml under the application directory.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate launch-agent brew-update --command \"/opt/homebrew/bin/brew update\"",
 			"  forge manifest generate launch-agent --application brew-update --command \"/opt/homebrew/bin/brew update\" --schedule interval --interval-seconds 86400",
@@ -594,13 +594,19 @@ func validateGeneratedManifest(contents string) error {
 	return nil
 }
 
+// ForgeDirName is the hidden container that wraps per-application manifest
+// directories (e.g. .forge/<application>/github-repo.yaml). The reconcile
+// walker special-cases this name so the default hidden-directory skip does
+// not hide generated manifests from `forge reconcile`.
+const ForgeDirName = ".forge"
+
 func applicationDirectoryOutputPath(name, filename, dir string) (string, error) {
 	baseDir, err := resolveBaseOutputDir(dir)
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Join(baseDir, name, filename), nil
+	return filepath.Join(baseDir, ForgeDirName, name, filename), nil
 }
 
 func generatedManifestFilename(resource string) string {
@@ -742,6 +748,7 @@ func hcpTFEnvironmentOptions() []selectOption {
 		{Label: "Development", Value: "dev"},
 		{Label: "Pre-prod", Value: "pre"},
 		{Label: "Prod", Value: "prod"},
+		{Label: "Admin", Value: "admin"},
 	}
 }
 
@@ -1574,7 +1581,7 @@ spec:
   # spec.name is the HCP Terraform workspace name derived from the repo name
   # plus the selected environment suffix.
   name: %q
-  # environment selects the managed workspace suffix; use dev, pre, or prod.
+  # environment selects the managed workspace suffix; use dev, pre, prod, or admin.
   environment: %q
   # organization is the HCP Terraform organization slug.
   organization: %q
