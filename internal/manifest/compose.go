@@ -56,10 +56,10 @@ If the required inputs are not provided as flags, Forge prompts for:
   5. the managed policy ARNs to attach to generated provisioner roles
 
 Forge writes:
-  - <application>/github-repo.yaml
-  - <application>/hcp-tf-workspace-<env>.yml for each selected environment
-  - <application>/aws-iam-provisioner-<env>-gha.yaml and
-    <application>/aws-iam-provisioner-<env>-tfc.yaml for each selected environment`),
+  - .forge/<application>/github-repo.yaml
+  - .forge/<application>/hcp-tf-workspace-<env>.yml for each selected environment
+  - .forge/<application>/aws-iam-provisioner-<env>-gha.yaml and
+    .forge/<application>/aws-iam-provisioner-<env>-tfc.yaml for each selected environment`),
 		Example: strings.Join([]string{
 			"  forge manifest compose terraform-github-repo forge",
 			"  forge manifest compose terraform-github-repo --application forge --owner emkaytec --environment dev --account-id dev=123456789012",
@@ -90,7 +90,7 @@ Forge writes:
 	cmd.Flags().StringVar(&options.description, "description", "", "Repository description (optional)")
 	cmd.Flags().StringSliceVar(&options.topics, "topic", nil, "GitHub topic slug to attach (repeat or comma-separate)")
 	cmd.Flags().StringVar(&options.defaultBranch, "default-branch", "", "Default branch name")
-	cmd.Flags().StringSliceVar(&options.environments, "environment", nil, "Deployment environment to generate: dev, pre, or prod (repeat or comma-separate)")
+	cmd.Flags().StringSliceVar(&options.environments, "environment", nil, "Deployment environment to generate: dev, pre, prod, or admin (repeat or comma-separate)")
 	cmd.Flags().StringSliceVar(&options.accountProfiles, "account-profile", nil, "Environment-specific AWS profile mapping in the form env=profile (repeat or comma-separate)")
 	cmd.Flags().StringSliceVar(&options.accountIDs, "account-id", nil, "Environment-specific AWS account ID mapping in the form env=123456789012 (repeat or comma-separate)")
 	cmd.Flags().StringVar(&options.organization, "organization", "", "HCP Terraform organization slug")
@@ -280,6 +280,8 @@ func configureComposeTerraformGitHubRepoFlow(p *promptSession) {
 		"Pre-prod AWS account ID",
 		"Prod AWS account",
 		"Prod AWS account ID",
+		"Admin AWS account",
+		"Admin AWS account ID",
 		"HCP TF organization",
 		"HCP TF project",
 		"Execution mode",
@@ -318,7 +320,7 @@ func resolveComposeEnvironments(p *promptSession, flagValues []string) ([]string
 			}
 		}
 		if !valid {
-			return nil, fmt.Errorf("invalid environment %q; allowed: dev, pre, prod", flagValue)
+			return nil, fmt.Errorf("invalid environment %q; allowed: dev, pre, prod, admin", flagValue)
 		}
 		selectedValues[flagValue] = struct{}{}
 	}
@@ -352,9 +354,9 @@ func parseComposeEnvironmentValues(flagValues []string, flagName string) (map[st
 		}
 
 		switch environment {
-		case "dev", "pre", "prod":
+		case "dev", "pre", "prod", "admin":
 		default:
-			return nil, fmt.Errorf("%s uses unsupported environment %q; allowed: dev, pre, prod", flagName, environment)
+			return nil, fmt.Errorf("%s uses unsupported environment %q; allowed: dev, pre, prod, admin", flagName, environment)
 		}
 
 		if _, exists := valuesByEnvironment[environment]; exists {

@@ -100,11 +100,11 @@ Forge now ships a `manifest` command domain for starter manifest authoring and s
 
 `forge manifest compose terraform-github-repo` starts with the same repo inputs as `forge manifest generate github-repo`, then prompts for one or more deployment environments, the AWS account for each selected environment, and the shared HCP Terraform plus IAM settings needed to fan out a full repo stack. It writes:
 
-- `<application>/github-repo.yaml`
-- `<application>/hcp-tf-workspace-<env>.yml` for each selected environment
-- `<application>/aws-iam-provisioner-<env>-gha.yaml` and `<application>/aws-iam-provisioner-<env>-tfc.yaml` for each selected environment
+- `.forge/<application>/github-repo.yaml`
+- `.forge/<application>/hcp-tf-workspace-<env>.yml` for each selected environment
+- `.forge/<application>/aws-iam-provisioner-<env>-gha.yaml` and `.forge/<application>/aws-iam-provisioner-<env>-tfc.yaml` for each selected environment
 
-Generated manifests write `<directory>/<resource>.yaml` under the current directory by default. `github-repo` uses the application name for the shared directory while keeping `metadata.name` owner-scoped. `hcp-tf-workspace` writes `hcp-tf-workspace-<env>.yml`, uses the repository name for the shared directory, and keeps `metadata.name` owner-scoped. `aws-iam-provisioner` uses the repository name for the shared directory, always writes both `aws-iam-provisioner-<env>-gha.yaml` and `aws-iam-provisioner-<env>-tfc.yaml`, keeps `metadata.name` owner-scoped, and uses the repository name for `spec.name`. Pass `--dir <relative-path>` to place generated files under a different relative directory.
+Generated manifests write `.forge/<directory>/<resource>.yaml` under the current directory by default. The `.forge` container keeps generated manifests grouped together; `forge reconcile` descends into it automatically even though it's a hidden directory. `github-repo` uses the application name for the shared directory while keeping `metadata.name` owner-scoped. `hcp-tf-workspace` writes `hcp-tf-workspace-<env>.yml`, uses the repository name for the shared directory, and keeps `metadata.name` owner-scoped. `aws-iam-provisioner` uses the repository name for the shared directory, always writes both `aws-iam-provisioner-<env>-gha.yaml` and `aws-iam-provisioner-<env>-tfc.yaml`, keeps `metadata.name` owner-scoped, and uses the repository name for `spec.name`. Pass `--dir <relative-path>` to place generated files under a different relative directory.
 
 The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
 

@@ -43,16 +43,16 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 	}
 
 	expectedFiles := []string{
-		filepath.Join(tempDir, "forge-test-repo", "github-repo.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-pre-tfc.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-prod-gha.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "github-repo.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-dev.yml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-pre.yml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-prod.yml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-gha.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"),
 	}
 
 	for _, path := range expectedFiles {
@@ -85,7 +85,7 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 		}
 	}
 
-	hcpWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"))
+	hcpWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-pre.yml"))
 	if err != nil {
 		t.Fatalf("ReadFile(hcp workspace) error = %v", err)
 	}
@@ -105,7 +105,7 @@ func TestRunManifestComposeTerraformGitHubRepoSupportsNonInteractiveFlags(t *tes
 		}
 	}
 
-	awsProvisionerContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"))
+	awsProvisionerContents, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(aws provisioner) error = %v", err)
 	}
@@ -186,23 +186,23 @@ sso_account_id = 133124153984
 	}
 
 	for _, path := range []string{
-		filepath.Join(tempDir, "forge-test-repo", "github-repo.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-pre-tfc.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-prod-gha.yaml"),
-		filepath.Join(tempDir, "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "github-repo.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-dev.yml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-pre.yml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-prod.yml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-gha.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-dev-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-gha.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-pre-tfc.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-gha.yaml"),
+		filepath.Join(tempDir, ".forge", "forge-test-repo", "aws-iam-provisioner-prod-tfc.yaml"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected generated file %q: %v", path, err)
 		}
 	}
 
-	devWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-dev.yml"))
+	devWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-dev.yml"))
 	if err != nil {
 		t.Fatalf("ReadFile(dev workspace) error = %v", err)
 	}
@@ -210,7 +210,7 @@ sso_account_id = 133124153984
 		t.Fatalf("dev workspace did not use the prioritized dev account: %q", string(devWorkspaceContents))
 	}
 
-	preWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-pre.yml"))
+	preWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-pre.yml"))
 	if err != nil {
 		t.Fatalf("ReadFile(pre workspace) error = %v", err)
 	}
@@ -218,7 +218,7 @@ sso_account_id = 133124153984
 		t.Fatalf("pre workspace did not use the prioritized pre account: %q", string(preWorkspaceContents))
 	}
 
-	prodWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, "forge-test-repo", "hcp-tf-workspace-prod.yml"))
+	prodWorkspaceContents, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge-test-repo", "hcp-tf-workspace-prod.yml"))
 	if err != nil {
 		t.Fatalf("ReadFile(prod workspace) error = %v", err)
 	}
@@ -337,7 +337,7 @@ func TestRunManifestComposeTerraformGitHubRepoHelpDescribesCLIFlow(t *testing.T)
 	for _, snippet := range []string{
 		"Compose a repo stack into github-repo, hcp-tf-workspace, and aws-iam-provisioner manifests",
 		"the application name and repository owner",
-		"<application>/github-repo.yaml",
+		".forge/<application>/github-repo.yaml",
 		"--environment",
 		"--account-id",
 	} {

@@ -88,3 +88,37 @@ func TestDiscoverManifestsSkipsHiddenDirectories(t *testing.T) {
 		t.Fatalf("DiscoverManifests() returned %v, want only real.yaml", paths)
 	}
 }
+
+func TestDiscoverManifestsDescendsIntoDotForge(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	// `forge manifest generate` writes manifests under `.forge/<app>/`, so
+	// the walker has to descend into `.forge` even though the dotdir rule
+	// would otherwise skip it. Sibling dotdirs like `.git` must still be
+	// skipped to avoid traversing version-control or tooling trees.
+	appDir := filepath.Join(root, ".forge", "forge")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", appDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "github-repo.yaml"), []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile(github-repo.yaml) error = %v", err)
+	}
+
+	git := filepath.Join(root, ".git")
+	if err := os.MkdirAll(git, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", git, err)
+	}
+	if err := os.WriteFile(filepath.Join(git, "HEAD.yaml"), []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile(HEAD.yaml) error = %v", err)
+	}
+
+	paths, err := reconcile.DiscoverManifests(root)
+	if err != nil {
+		t.Fatalf("DiscoverManifests() error = %v", err)
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], filepath.Join(".forge", "forge", "github-repo.yaml")) {
+		t.Fatalf("DiscoverManifests() returned %v, want only the .forge manifest", paths)
+	}
+}
