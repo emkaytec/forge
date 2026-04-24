@@ -100,13 +100,6 @@ func (h *Handler) DescribeChange(ctx context.Context, m *schema.Manifest, _ stri
 			Observed: workspace.TerraformVersion,
 		})
 	}
-	if spec.VCSRepo != "" && currentVCSIdentifier(workspace) != spec.VCSRepo {
-		change.Drift = append(change.Drift, reconcile.DriftField{
-			Path:     "spec.vcs_repo",
-			Desired:  spec.VCSRepo,
-			Observed: currentVCSIdentifier(workspace),
-		})
-	}
 	if projectID != "" && workspace.ProjectID != projectID {
 		change.Drift = append(change.Drift, reconcile.DriftField{
 			Path:     "spec.project",
@@ -175,9 +168,6 @@ func workspaceRequestFromSpec(spec *schema.HCPTFWorkspaceSpec, projectID string)
 	if spec.TerraformVersion != "" {
 		request.TerraformVersion = stringPtr(spec.TerraformVersion)
 	}
-	if spec.VCSRepo != "" {
-		request.VCSRepo = &hcpapi.WorkspaceVCSRepo{Identifier: spec.VCSRepo}
-	}
 	if projectID != "" {
 		request.ProjectID = stringPtr(projectID)
 	}
@@ -193,25 +183,15 @@ func workspaceUpdateRequest(workspace *hcpapi.Workspace, spec *schema.HCPTFWorks
 	if spec.TerraformVersion != "" && workspace.TerraformVersion != spec.TerraformVersion {
 		request.TerraformVersion = stringPtr(spec.TerraformVersion)
 	}
-	if spec.VCSRepo != "" && currentVCSIdentifier(workspace) != spec.VCSRepo {
-		request.VCSRepo = &hcpapi.WorkspaceVCSRepo{Identifier: spec.VCSRepo}
-	}
 	if projectID != "" && workspace.ProjectID != projectID {
 		request.ProjectID = stringPtr(projectID)
 	}
 
-	if request.ExecutionMode == nil && request.TerraformVersion == nil && request.VCSRepo == nil && request.ProjectID == nil {
+	if request.ExecutionMode == nil && request.TerraformVersion == nil && request.ProjectID == nil {
 		return nil
 	}
 
 	return request
-}
-
-func currentVCSIdentifier(workspace *hcpapi.Workspace) string {
-	if workspace.VCSRepo == nil {
-		return ""
-	}
-	return workspace.VCSRepo.Identifier
 }
 
 func describeAccountVariableDrift(ctx context.Context, client client, workspaceID string, spec *schema.HCPTFWorkspaceSpec) ([]reconcile.DriftField, error) {

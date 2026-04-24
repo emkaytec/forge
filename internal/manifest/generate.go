@@ -58,9 +58,13 @@ type hcpTFWorkspaceTemplateData struct {
 	Organization     string
 	Project          string
 	AccountID        string
-	VCSRepo          string
 	ExecutionMode    string
 	TerraformVersion string
+}
+
+type awsIAMProvisionerTrustTemplateData struct {
+	OIDCProvider string
+	OIDCSubject  string
 }
 
 type awsIAMProvisionerTemplateData struct {
@@ -68,8 +72,7 @@ type awsIAMProvisionerTemplateData struct {
 	ApplicationName  string
 	RoleName         string
 	AccountID        string
-	OIDCProvider     string
-	OIDCSubject      string
+	Trusts           []awsIAMProvisionerTrustTemplateData
 	ManagedPolicies  []string
 }
 
@@ -211,6 +214,7 @@ func newGenerateHCPTFWorkspaceCommand() *cobra.Command {
 	var (
 		outputDir        string
 		environment      string
+		environmentSet   bool
 		accountProfile   string
 		accountID        string
 		organization     string
@@ -227,14 +231,16 @@ func newGenerateHCPTFWorkspaceCommand() *cobra.Command {
 
 If the required inputs are not provided as flags, Forge prompts for:
   1. the connected VCS repo (owner/repo)
-  2. the deployment environment and AWS account
+  2. the deployment environment and AWS account (environment may be left blank
+     to emit a workspace with no environment suffix, e.g. for admin repos)
   3. the HCP Terraform organization and optional project
   4. the execution mode and Terraform version
 
 Forge derives a shared application directory from the repository name
-(for example, emkaytec/forge becomes forge), appends the selected
-environment to metadata.name and spec.name, and writes the
-manifest to .forge/<application-name>/hcp-tf-workspace-<env>.yml.`),
+(for example, emkaytec/forge becomes forge). When an environment is set,
+Forge appends it to metadata.name and spec.name and writes the manifest
+to .forge/<application-name>/hcp-tf-workspace-<env>.yml; otherwise the
+manifest is written to .forge/<application-name>/hcp-tf-workspace.yml.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate hcp-tf-workspace emkaytec/forge --environment dev --account-id 123456789012",
 			"  forge manifest generate hcp-tf-workspace --vcs-repo emkaytec/forge --environment pre --account-profile preprod-admin --organization emkaytec --project platform",
@@ -246,6 +252,8 @@ manifest to .forge/<application-name>/hcp-tf-workspace-<env>.yml.`),
 				return err
 			}
 
+			environmentSet = cmd.Flags().Changed("environment")
+
 			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			configureHCPTFWorkspaceFlow(p)
 
@@ -254,7 +262,7 @@ manifest to .forge/<application-name>/hcp-tf-workspace-<env>.yml.`),
 				return err
 			}
 
-			environmentValue, err := resolveSelect(p, "Environment", environment, hcpTFEnvironmentOptions(), 0)
+			environmentValue, err := resolveOptionalEnvironment(p, environment, environmentSet)
 			if err != nil {
 				return err
 			}
@@ -316,7 +324,6 @@ manifest to .forge/<application-name>/hcp-tf-workspace-<env>.yml.`),
 				Organization:     organizationValue,
 				Project:          projectValue,
 				AccountID:        accountIDValue,
-				VCSRepo:          vcsRepoValue,
 				ExecutionMode:    executionModeValue,
 				TerraformVersion: terraformVersionValue,
 			}
@@ -325,7 +332,7 @@ manifest to .forge/<application-name>/hcp-tf-workspace-<env>.yml.`),
 				cmd,
 				applicationName,
 				"hcp-tf-workspace",
-				"hcp-tf-workspace-"+environmentValue+".yml",
+				hcpTFWorkspaceFilename(environmentValue),
 				outputDir,
 				renderHCPTFWorkspaceTemplateWithData(data),
 			)
@@ -333,7 +340,7 @@ manifest to .forge/<application-name>/hcp-tf-workspace-<env>.yml.`),
 	}
 
 	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, prod, or admin")
+	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, prod, admin, or empty for no suffix")
 	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS shared-config profile to derive the account ID from")
 	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
 	cmd.Flags().StringVar(&organization, "organization", "", "HCP Terraform organization slug")
@@ -362,16 +369,17 @@ func newGenerateAWSIAMProvisionerCommand() *cobra.Command {
 
 If the required inputs are not provided as flags, Forge prompts for:
   1. the connected VCS repo (owner/repo)
-  2. the deployment environment and AWS account
+  2. the deployment environment and AWS account (environment may be left blank
+     to emit a provisioner with no environment suffix, e.g. for admin repos)
   3. the managed policy ARNs to attach
 
-Forge always writes both GitHub Actions and HCP Terraform provisioner manifests.
-The shared application directory comes from the repository name, while the
-manifest and role names stay owner-scoped with the environment suffix. The HCP
-Terraform trust subject is derived as <owner>/*/<repo>-<env> by default, and the
-manifests are written as
-.forge/<application>/aws-iam-provisioner-<env>-gha.yaml and
-.forge/<application>/aws-iam-provisioner-<env>-tfc.yaml.`),
+Forge writes a single provisioner manifest whose IAM role trusts both the
+GitHub Actions and HCP Terraform OIDC providers. The shared application
+directory comes from the repository name; the manifest and role names stay
+owner-scoped with the environment suffix when one is selected. The HCP
+Terraform trust subject is derived as <owner>/*/<repo>[-env], and the manifest
+is written as
+.forge/<application>/aws-iam-provisioner[-<env>].yaml.`),
 		Example: strings.Join([]string{
 			"  forge manifest generate aws-iam-provisioner emkaytec/forge --environment dev --account-id 123456789012 --managed-policy arn:aws:iam::aws:policy/ReadOnlyAccess",
 			"  forge manifest generate aws-iam-provisioner --vcs-repo emkaytec/forge --environment prod --account-profile prod-admin",
@@ -383,6 +391,8 @@ manifests are written as
 				return err
 			}
 
+			environmentSet := cmd.Flags().Changed("environment")
+
 			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			configureAWSIAMProvisionerFlow(p)
 
@@ -391,7 +401,7 @@ manifests are written as
 				return err
 			}
 
-			environmentValue, err := resolveSelect(p, "Environment", environment, hcpTFEnvironmentOptions(), 0)
+			environmentValue, err := resolveOptionalEnvironment(p, environment, environmentSet)
 			if err != nil {
 				return err
 			}
@@ -425,7 +435,7 @@ manifests are written as
 				fmt.Fprintln(p.out)
 			}
 
-			return writeAWSIAMProvisionerManifests(
+			return writeAWSIAMProvisionerManifest(
 				cmd,
 				directoryName,
 				manifestRootName,
@@ -750,6 +760,41 @@ func hcpTFEnvironmentOptions() []selectOption {
 		{Label: "Prod", Value: "prod"},
 		{Label: "Admin", Value: "admin"},
 	}
+}
+
+// hcpTFOptionalEnvironmentOptions returns the environment selector with a
+// leading "None" option for workspaces that should not carry an environment
+// suffix (for example, an admin-owned repo with no per-environment fanout).
+func hcpTFOptionalEnvironmentOptions() []selectOption {
+	options := hcpTFEnvironmentOptions()
+	return append([]selectOption{{Label: "None (no environment suffix)", Value: ""}}, options...)
+}
+
+const noEnvironmentValue = "none"
+
+// resolveOptionalEnvironment honors an explicit --environment flag (including
+// empty string) while prompting for a selection when the flag was not set. The
+// "None" option in the selector maps to an empty spec.environment.
+func resolveOptionalEnvironment(p *promptSession, flagValue string, flagSet bool) (string, error) {
+	if flagSet {
+		trimmed := strings.TrimSpace(flagValue)
+		if trimmed == "" || strings.EqualFold(trimmed, noEnvironmentValue) {
+			return "", nil
+		}
+
+		for _, option := range hcpTFEnvironmentOptions() {
+			if option.Value == trimmed {
+				return trimmed, nil
+			}
+		}
+		return "", fmt.Errorf("invalid environment %q; allowed: dev, pre, prod, admin, or empty", trimmed)
+	}
+
+	selected, err := selectOnePrompt(p, "Environment", hcpTFOptionalEnvironmentOptions(), 1)
+	if err != nil {
+		return "", err
+	}
+	return selected.Value, nil
 }
 
 func hcpTFEnvironmentLabel(environment string) string {
@@ -1468,7 +1513,12 @@ func resolveProviderTarget(p *promptSession, provider oidc.Provider, githubRepo,
 	}
 }
 
-func writeAWSIAMProvisionerManifests(cmd *cobra.Command, directoryName, manifestRootName, environment, accountID, generatorCommand string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
+func writeAWSIAMProvisionerManifest(cmd *cobra.Command, directoryName, manifestRootName, environment, accountID, generatorCommand string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
+	if len(providers) == 0 {
+		return fmt.Errorf("at least one OIDC provider must be configured for the IAM provisioner role")
+	}
+
+	trusts := make([]awsIAMProvisionerTrustTemplateData, 0, len(providers))
 	for _, provider := range providers {
 		target, ok := targets[provider.Key]
 		if !ok {
@@ -1480,35 +1530,49 @@ func writeAWSIAMProvisionerManifests(cmd *cobra.Command, directoryName, manifest
 			return err
 		}
 
-		manifestBaseName := appendHCPTFEnvironmentSuffix(manifestRootName, environment)
-		manifestName := manifestBaseName + "-" + provider.NameSuffix
-		roleName, err := buildAWSIAMProvisionerRoleName(directoryName, environment, provider.NameSuffix)
-		if err != nil {
-			return err
-		}
-		resourceName := "aws-iam-provisioner-" + provider.NameSuffix
-		filename := fmt.Sprintf("aws-iam-provisioner-%s-%s.yaml", environment, provider.NameSuffix)
-
-		contents := renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
-			GeneratorCommand: generatorCommand,
-			ApplicationName:  manifestName,
-			RoleName:         roleName,
-			AccountID:        accountID,
-			OIDCProvider:     provider.Issuer,
-			OIDCSubject:      subject,
-			ManagedPolicies:  policies,
+		trusts = append(trusts, awsIAMProvisionerTrustTemplateData{
+			OIDCProvider: provider.Issuer,
+			OIDCSubject:  subject,
 		})
-
-		if err := writeGeneratedManifestWithFilename(cmd, directoryName, resourceName, filename, outputDir, contents); err != nil {
-			return err
-		}
 	}
 
-	return nil
+	manifestName := appendHCPTFEnvironmentSuffix(manifestRootName, environment)
+	roleName, err := buildAWSIAMProvisionerRoleName(directoryName, environment)
+	if err != nil {
+		return err
+	}
+	filename := awsIAMProvisionerFilename(environment)
+
+	contents := renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
+		GeneratorCommand: generatorCommand,
+		ApplicationName:  manifestName,
+		RoleName:         roleName,
+		AccountID:        accountID,
+		Trusts:           trusts,
+		ManagedPolicies:  policies,
+	})
+
+	return writeGeneratedManifestWithFilename(cmd, directoryName, "aws-iam-provisioner", filename, outputDir, contents)
 }
 
-func buildAWSIAMProvisionerRoleName(baseName, environment, providerSuffix string) (string, error) {
-	roleSuffix := "-" + providerSuffix + "-provisioner-role"
+func awsIAMProvisionerFilename(environment string) string {
+	environment = strings.TrimSpace(environment)
+	if environment == "" {
+		return "aws-iam-provisioner.yaml"
+	}
+	return fmt.Sprintf("aws-iam-provisioner-%s.yaml", environment)
+}
+
+func hcpTFWorkspaceFilename(environment string) string {
+	environment = strings.TrimSpace(environment)
+	if environment == "" {
+		return "hcp-tf-workspace.yml"
+	}
+	return "hcp-tf-workspace-" + environment + ".yml"
+}
+
+func buildAWSIAMProvisionerRoleName(baseName, environment string) (string, error) {
+	roleSuffix := "-provisioner-role"
 	if strings.TrimSpace(environment) != "" {
 		roleSuffix = "-" + environment + roleSuffix
 	}
@@ -1575,13 +1639,14 @@ apiVersion: forge/v1
 kind: HCPTerraformWorkspace
 metadata:
   # metadata.name is the stable manifest identifier derived from the VCS repo
-  # plus the selected environment suffix.
+  # plus the optional environment suffix.
   name: %q
 spec:
   # spec.name is the HCP Terraform workspace name derived from the repo name
-  # plus the selected environment suffix.
+  # plus the optional environment suffix.
   name: %q
-  # environment selects the managed workspace suffix; use dev, pre, prod, or admin.
+  # environment is optional; when set it must be dev, pre, prod, or admin.
+  # Leave blank to manage a workspace with no environment suffix.
   environment: %q
   # organization is the HCP Terraform organization slug.
   organization: %q
@@ -1589,13 +1654,11 @@ spec:
   project: %q
   # account_id is written to the workspace as a terraform variable named account_id.
   account_id: %q
-  # vcs_repo is required and should use the connected GitHub identifier.
-  vcs_repo: %q
   # execution_mode must be remote, local, or agent.
   execution_mode: %s
   # terraform_version is optional and pins the workspace runtime.
   terraform_version: %q
-`, data.GeneratorCommand, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.VCSRepo, data.ExecutionMode, data.TerraformVersion)
+`, data.GeneratorCommand, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.ExecutionMode, data.TerraformVersion)
 }
 
 func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData) string {
@@ -1603,20 +1666,34 @@ func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData)
 apiVersion: forge/v1
 kind: AWSIAMProvisioner
 metadata:
-  # metadata.name is the application identifier plus the environment and provider suffix.
+  # metadata.name is the application identifier plus the optional environment suffix.
   name: %q
 spec:
   # spec.name is the AWS IAM role Forge will manage for this application and environment.
   name: %q
   # account_id is the 12-digit AWS account identifier.
   account_id: %q
-  # oidc_provider is the trusted OIDC issuer host.
-  oidc_provider: %q
-  # oidc_subject scopes which workload identity may assume this role.
-  oidc_subject: %q
+  # trusts is the list of OIDC issuers allowed to assume this role. A single
+  # role can trust multiple providers (for example, GitHub Actions and HCP
+  # Terraform) so that one application role serves both CI and Terraform runs.
+%s
   # managed_policies is optional and attaches AWS managed policy ARNs.
 %s
-`, data.GeneratorCommand, data.ApplicationName, data.RoleName, data.AccountID, data.OIDCProvider, data.OIDCSubject, renderStringListBlock("managed_policies", data.ManagedPolicies))
+`, data.GeneratorCommand, data.ApplicationName, data.RoleName, data.AccountID, renderAWSIAMProvisionerTrustsBlock(data.Trusts), renderStringListBlock("managed_policies", data.ManagedPolicies))
+}
+
+func renderAWSIAMProvisionerTrustsBlock(trusts []awsIAMProvisionerTrustTemplateData) string {
+	if len(trusts) == 0 {
+		return "  trusts: []"
+	}
+
+	var builder strings.Builder
+	builder.WriteString("  trusts:\n")
+	for _, trust := range trusts {
+		builder.WriteString(fmt.Sprintf("    - oidc_provider: %q\n", trust.OIDCProvider))
+		builder.WriteString(fmt.Sprintf("      oidc_subject: %q\n", trust.OIDCSubject))
+	}
+	return strings.TrimSuffix(builder.String(), "\n")
 }
 
 func renderLaunchAgentTemplateWithData(data launchAgentTemplateData) string {
