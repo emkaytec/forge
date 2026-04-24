@@ -31,10 +31,12 @@ func TestDescribeChangeCreatesRoleWhenMissing(t *testing.T) {
 		Kind:     schema.KindAWSIAMProvisioner,
 		Metadata: schema.Metadata{Name: "gha"},
 		Spec: &schema.AWSIAMProvisionerSpec{
-			Name:            "gha",
-			AccountID:       "123456789012",
-			OIDCProvider:    "token.actions.githubusercontent.com",
-			OIDCSubject:     "repo:emkaytec/forge:*",
+			Name:      "gha",
+			AccountID: "123456789012",
+			Trusts: []schema.AWSIAMProvisionerTrust{{
+				OIDCProvider: "token.actions.githubusercontent.com",
+				OIDCSubject:  "repo:emkaytec/forge:*",
+			}},
 			ManagedPolicies: []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 		},
 	}, "gha.yaml")

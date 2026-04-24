@@ -53,18 +53,25 @@ type HCPTFWorkspaceSpec struct {
 	Organization     string `yaml:"organization"`
 	Project          string `yaml:"project,omitempty"`
 	AccountID        string `yaml:"account_id,omitempty"`
-	VCSRepo          string `yaml:"vcs_repo,omitempty"`
 	ExecutionMode    string `yaml:"execution_mode"`
 	TerraformVersion string `yaml:"terraform_version,omitempty"`
 }
 
-// AWSIAMProvisionerSpec is the initial OIDC-backed AWS provisioner schema.
+// AWSIAMProvisionerSpec describes an IAM role trusted by one or more OIDC
+// identity providers. A single role can trust multiple providers so that, for
+// example, both GitHub Actions and HCP Terraform can assume the same
+// application role.
 type AWSIAMProvisionerSpec struct {
-	Name            string   `yaml:"name"`
-	AccountID       string   `yaml:"account_id"`
-	OIDCProvider    string   `yaml:"oidc_provider"`
-	OIDCSubject     string   `yaml:"oidc_subject"`
-	ManagedPolicies []string `yaml:"managed_policies,omitempty"`
+	Name            string                 `yaml:"name"`
+	AccountID       string                 `yaml:"account_id"`
+	Trusts          []AWSIAMProvisionerTrust `yaml:"trusts"`
+	ManagedPolicies []string               `yaml:"managed_policies,omitempty"`
+}
+
+// AWSIAMProvisionerTrust is one OIDC issuer/subject pair the role accepts.
+type AWSIAMProvisionerTrust struct {
+	OIDCProvider string `yaml:"oidc_provider"`
+	OIDCSubject  string `yaml:"oidc_subject"`
 }
 
 // LaunchAgentSpec is the initial LaunchAgent schema staged in Forge.
@@ -195,9 +202,6 @@ func (s *HCPTFWorkspaceSpec) Validate() error {
 	if s.Environment != "" && s.AccountID == "" {
 		return invalidField("spec.account_id", "must not be empty when spec.environment is set")
 	}
-	if s.AccountID != "" && s.Environment == "" {
-		return invalidField("spec.environment", "must not be empty when spec.account_id is set")
-	}
 
 	switch s.ExecutionMode {
 	case "remote", "local", "agent":
@@ -221,12 +225,17 @@ func (s *AWSIAMProvisionerSpec) Validate() error {
 		return invalidField("spec.account_id", "must not be empty")
 	}
 
-	if s.OIDCProvider == "" {
-		return invalidField("spec.oidc_provider", "must not be empty")
+	if len(s.Trusts) == 0 {
+		return invalidField("spec.trusts", "must not be empty")
 	}
 
-	if s.OIDCSubject == "" {
-		return invalidField("spec.oidc_subject", "must not be empty")
+	for i, trust := range s.Trusts {
+		if trust.OIDCProvider == "" {
+			return invalidField(fmt.Sprintf("spec.trusts[%d].oidc_provider", i), "must not be empty")
+		}
+		if trust.OIDCSubject == "" {
+			return invalidField(fmt.Sprintf("spec.trusts[%d].oidc_subject", i), "must not be empty")
+		}
 	}
 
 	return nil

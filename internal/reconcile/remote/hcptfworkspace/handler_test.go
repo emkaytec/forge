@@ -59,7 +59,6 @@ func TestDescribeChangeDetectsWorkspaceDrift(t *testing.T) {
 			ExecutionMode:    "remote",
 			TerraformVersion: "1.7.0",
 			ProjectID:        "prj-old",
-			VCSRepo:          &hcpapi.WorkspaceVCSRepo{Identifier: "emkaytec/old"},
 		},
 		project: &hcpapi.Project{ID: "prj-new", Name: "platform"},
 	}
@@ -74,7 +73,6 @@ func TestDescribeChangeDetectsWorkspaceDrift(t *testing.T) {
 			Organization:     "emkaytec",
 			Project:          "platform",
 			AccountID:        "123456789012",
-			VCSRepo:          "emkaytec/forge",
 			ExecutionMode:    "agent",
 			TerraformVersion: "1.9.0",
 		},
@@ -85,8 +83,8 @@ func TestDescribeChangeDetectsWorkspaceDrift(t *testing.T) {
 	if change.Action != reconcile.ActionUpdate {
 		t.Fatalf("action = %q, want update", change.Action)
 	}
-	if len(change.Drift) != 5 {
-		t.Fatalf("len(drift) = %d, want 5", len(change.Drift))
+	if len(change.Drift) != 4 {
+		t.Fatalf("len(drift) = %d, want 4", len(change.Drift))
 	}
 }
 

@@ -58,8 +58,8 @@ If the required inputs are not provided as flags, Forge prompts for:
 Forge writes:
   - .forge/<application>/github-repo.yaml
   - .forge/<application>/hcp-tf-workspace-<env>.yml for each selected environment
-  - .forge/<application>/aws-iam-provisioner-<env>-gha.yaml and
-    .forge/<application>/aws-iam-provisioner-<env>-tfc.yaml for each selected environment`),
+  - .forge/<application>/aws-iam-provisioner-<env>.yaml for each selected
+    environment (a single role trusted by both GitHub Actions and HCP Terraform)`),
 		Example: strings.Join([]string{
 			"  forge manifest compose terraform-github-repo forge",
 			"  forge manifest compose terraform-github-repo --application forge --owner emkaytec --environment dev --account-id dev=123456789012",
@@ -223,7 +223,7 @@ func runComposeTerraformGitHubRepo(cmd *cobra.Command, args []string, options co
 			cmd,
 			applicationName,
 			"hcp-tf-workspace",
-			"hcp-tf-workspace-"+environmentValue+".yml",
+			hcpTFWorkspaceFilename(environmentValue),
 			options.outputDir,
 			renderHCPTFWorkspaceTemplateWithData(hcpTFWorkspaceTemplateData{
 				GeneratorCommand: generatorCommand,
@@ -233,7 +233,6 @@ func runComposeTerraformGitHubRepo(cmd *cobra.Command, args []string, options co
 				Organization:     organizationValue,
 				Project:          projectValue,
 				AccountID:        resolvedAccountIDs[environmentValue],
-				VCSRepo:          vcsRepo,
 				ExecutionMode:    executionModeValue,
 				TerraformVersion: terraformVersionValue,
 			}),
@@ -246,7 +245,7 @@ func runComposeTerraformGitHubRepo(cmd *cobra.Command, args []string, options co
 			return err
 		}
 
-		if err := writeAWSIAMProvisionerManifests(
+		if err := writeAWSIAMProvisionerManifest(
 			cmd,
 			applicationName,
 			manifestRootName,

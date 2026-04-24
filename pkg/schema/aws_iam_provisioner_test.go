@@ -19,8 +19,11 @@ metadata:
 spec:
   name: github-actions
   account_id: "123456789012"
-  oidc_provider: token.actions.githubusercontent.com
-  oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
+  trusts:
+    - oidc_provider: token.actions.githubusercontent.com
+      oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
+    - oidc_provider: app.terraform.io
+      oidc_subject: organization:emkaytec:project:platform:workspace:forge:run_phase:*
   managed_policies:
     - arn:aws:iam::aws:policy/ReadOnlyAccess
 `))
@@ -39,8 +42,14 @@ spec:
 	}
 
 	spec := roundTripped.Spec.(*schema.AWSIAMProvisionerSpec)
-	if spec.OIDCProvider != "token.actions.githubusercontent.com" {
-		t.Fatalf("oidc_provider = %q, want token.actions.githubusercontent.com", spec.OIDCProvider)
+	if len(spec.Trusts) != 2 {
+		t.Fatalf("trusts len = %d, want 2", len(spec.Trusts))
+	}
+	if spec.Trusts[0].OIDCProvider != "token.actions.githubusercontent.com" {
+		t.Fatalf("trusts[0].oidc_provider = %q, want token.actions.githubusercontent.com", spec.Trusts[0].OIDCProvider)
+	}
+	if spec.Trusts[1].OIDCProvider != "app.terraform.io" {
+		t.Fatalf("trusts[1].oidc_provider = %q, want app.terraform.io", spec.Trusts[1].OIDCProvider)
 	}
 
 	if len(spec.ManagedPolicies) != 1 {
@@ -59,8 +68,9 @@ metadata:
 spec:
   name: github-actions
   account_id: "123456789012"
-  oidc_provider: token.actions.githubusercontent.com
-  oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
+  trusts:
+    - oidc_provider: token.actions.githubusercontent.com
+      oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
   assume_role_policy: {}
 `))
 	if err == nil {
@@ -83,8 +93,9 @@ metadata:
 spec:
   name: this-role-name-is-deliberately-made-long-enough-to-exceed-sixty-four-chars
   account_id: "123456789012"
-  oidc_provider: token.actions.githubusercontent.com
-  oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
+  trusts:
+    - oidc_provider: token.actions.githubusercontent.com
+      oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
 `))
 	if err == nil {
 		t.Fatal("DecodeManifest() error = nil, want role-name length validation")
