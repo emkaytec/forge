@@ -26,7 +26,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				"--visibility", "private",
 				"--default-branch", "main",
 			},
-			path: filepath.Join("sample-repo", "github-repo.yaml"),
+			path: filepath.Join(".forge", "sample-repo", "github-repo.yaml"),
 			snippets: []string{
 				"kind: GitHubRepository",
 				"# visibility must be either public or private.",
@@ -49,7 +49,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				"--execution-mode", "remote",
 				"--terraform-version", "1.14.0",
 			},
-			path: filepath.Join("sample-repo", "hcp-tf-workspace-dev.yml"),
+			path: filepath.Join(".forge", "sample-repo", "hcp-tf-workspace-dev.yml"),
 			snippets: []string{
 				"kind: HCPTerraformWorkspace",
 				"# execution_mode must be remote, local, or agent.",
@@ -71,7 +71,7 @@ func TestRunManifestGenerateWritesStarterManifestInCurrentDirectory(t *testing.T
 				"--interval-seconds", "86400",
 				"--run-at-load",
 			},
-			path: filepath.Join("sample-repo", "launch-agent.yaml"),
+			path: filepath.Join(".forge", "sample-repo", "launch-agent.yaml"),
 			snippets: []string{
 				"kind: LaunchAgent",
 				"# type must be interval or calendar.",
@@ -135,7 +135,7 @@ func TestRunManifestGenerateWritesStarterManifestInRelativeDirectory(t *testing.
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "manifests", "examples", "brew-update", "launch-agent.yaml")
+	path := filepath.Join(tempDir, "manifests", "examples", ".forge", "brew-update", "launch-agent.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -198,7 +198,7 @@ func TestRunManifestGenerateGitHubRepoSupportsNonInteractiveFlags(t *testing.T) 
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
+	path := filepath.Join(tempDir, ".forge", "forge", "github-repo.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -253,7 +253,7 @@ func TestRunManifestGenerateHCPTFWorkspaceSupportsNonInteractiveFlags(t *testing
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
+	path := filepath.Join(tempDir, ".forge", "forge", "hcp-tf-workspace-dev.yml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -304,7 +304,7 @@ func TestRunManifestGenerateLaunchAgentSupportsCalendarSchedule(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "nightly-report", "launch-agent.yaml")
+	path := filepath.Join(tempDir, ".forge", "nightly-report", "launch-agent.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -363,7 +363,7 @@ func TestManifestGeneratePromptsForGitHubRepoFieldsWhenNameOmitted(t *testing.T)
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "github-repo.yaml")
+	path := filepath.Join(tempDir, ".forge", "forge", "github-repo.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -436,7 +436,7 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
+	path := filepath.Join(tempDir, ".forge", "forge", "hcp-tf-workspace-dev.yml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -529,7 +529,7 @@ sso_account_id = 111111111111
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge", "hcp-tf-workspace-dev.yml")
+	path := filepath.Join(tempDir, ".forge", "forge", "hcp-tf-workspace-dev.yml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -577,7 +577,7 @@ func TestManifestGeneratePromptsForLaunchAgentFieldsWhenNameOmitted(t *testing.T
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "brew-update", "launch-agent.yaml")
+	path := filepath.Join(tempDir, ".forge", "brew-update", "launch-agent.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -642,7 +642,7 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-prod-gha.yaml")
+	githubPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-prod-gha.yaml")
 	rendered, err := os.ReadFile(githubPath)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -673,7 +673,7 @@ sso_account_id = 123456789012
 		t.Fatalf("generated manifest did not contain expected GitHub subject: %q", contents)
 	}
 
-	hcpRendered, err := os.ReadFile(filepath.Join(tempDir, "forge", "aws-iam-provisioner-prod-tfc.yaml"))
+	hcpRendered, err := os.ReadFile(filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-prod-tfc.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(hcp) error = %v", err)
 	}
@@ -736,7 +736,7 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsNonInteractiveFlags(t *test
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-gha.yaml")
+	githubPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-gha.yaml")
 	githubRendered, err := os.ReadFile(githubPath)
 	if err != nil {
 		t.Fatalf("ReadFile(github) error = %v", err)
@@ -753,7 +753,7 @@ func TestRunManifestGenerateAWSIAMProvisionerSupportsNonInteractiveFlags(t *test
 		t.Fatalf("generated manifest did not contain expected GitHub subject: %q", githubContents)
 	}
 
-	hcpPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-tfc.yaml")
+	hcpPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-tfc.yaml")
 	hcpRendered, err := os.ReadFile(hcpPath)
 	if err != nil {
 		t.Fatalf("ReadFile(hcp) error = %v", err)
@@ -802,7 +802,7 @@ func TestRunManifestGenerateAWSIAMProvisionerDerivesNamesFromVCSRepo(t *testing.
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-dev-gha.yaml")
+	path := filepath.Join(tempDir, ".forge", "forge-app", "aws-iam-provisioner-dev-gha.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -839,7 +839,7 @@ func TestRunManifestGenerateAWSIAMProvisionerAlwaysWritesBothManifests(t *testin
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	githubPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-gha.yaml")
+	githubPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-gha.yaml")
 	githubRendered, err := os.ReadFile(githubPath)
 	if err != nil {
 		t.Fatalf("ReadFile(github) error = %v", err)
@@ -854,7 +854,7 @@ func TestRunManifestGenerateAWSIAMProvisionerAlwaysWritesBothManifests(t *testin
 		t.Fatalf("generated GitHub manifest did not contain suffixed role name: %q", githubContents)
 	}
 
-	hcpPath := filepath.Join(tempDir, "forge", "aws-iam-provisioner-dev-tfc.yaml")
+	hcpPath := filepath.Join(tempDir, ".forge", "forge", "aws-iam-provisioner-dev-tfc.yaml")
 	hcpRendered, err := os.ReadFile(hcpPath)
 	if err != nil {
 		t.Fatalf("ReadFile(hcp) error = %v", err)
@@ -937,7 +937,7 @@ func TestRunManifestGenerateAWSIAMProvisionerTruncatesRoleNameToAWSLimit(t *test
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	path := filepath.Join(tempDir, longApplication, "aws-iam-provisioner-dev-gha.yaml")
+	path := filepath.Join(tempDir, ".forge", longApplication, "aws-iam-provisioner-dev-gha.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -997,7 +997,7 @@ sso_account_id = 123456789012
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	path := filepath.Join(tempDir, "forge-app", "aws-iam-provisioner-prod-gha.yaml")
+	path := filepath.Join(tempDir, ".forge", "forge-app", "aws-iam-provisioner-prod-gha.yaml")
 	rendered, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
