@@ -45,6 +45,17 @@ func IsNotFound(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
 
+func IsAlreadyExists(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	message := strings.ToLower(apiErr.Message)
+	return apiErr.StatusCode == http.StatusConflict ||
+		strings.Contains(message, "already exists") ||
+		strings.Contains(message, "already been taken")
+}
+
 func NewClientFromEnv() (*Client, error) {
 	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 	if token == "" {
@@ -111,6 +122,11 @@ func (r UpdateRepositoryRequest) IsZero() bool {
 
 type TopicsResponse struct {
 	Names []string `json:"names"`
+}
+
+type RepositoryVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 func (c *Client) GetAuthenticatedUser(ctx context.Context) (*Account, error) {
@@ -183,6 +199,23 @@ func (c *Client) UpdateRepository(ctx context.Context, owner string, repo string
 func (c *Client) ReplaceTopics(ctx context.Context, owner string, repo string, topics []string) error {
 	request := TopicsResponse{Names: topics}
 	return c.request(ctx, http.MethodPut, fmt.Sprintf("/repos/%s/%s/topics", url.PathEscape(owner), url.PathEscape(repo)), request, nil, http.StatusOK)
+}
+
+func (c *Client) GetRepositoryVariable(ctx context.Context, owner string, repo string, name string) (*RepositoryVariable, error) {
+	var variable RepositoryVariable
+	if err := c.request(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s/actions/variables/%s", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(name)), nil, &variable, http.StatusOK); err != nil {
+		return nil, err
+	}
+
+	return &variable, nil
+}
+
+func (c *Client) CreateRepositoryVariable(ctx context.Context, owner string, repo string, variable RepositoryVariable) error {
+	return c.request(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/%s/actions/variables", url.PathEscape(owner), url.PathEscape(repo)), variable, nil, http.StatusCreated)
+}
+
+func (c *Client) UpdateRepositoryVariable(ctx context.Context, owner string, repo string, name string, variable RepositoryVariable) error {
+	return c.request(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/%s/actions/variables/%s", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(name)), variable, nil, http.StatusNoContent, http.StatusOK)
 }
 
 func (c *Client) request(ctx context.Context, method string, path string, requestBody any, responseBody any, expectedStatusCodes ...int) error {

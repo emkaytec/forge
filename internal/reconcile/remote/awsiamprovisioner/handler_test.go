@@ -12,6 +12,7 @@ import (
 
 type fakeIAMClient struct{}
 
+func (fakeIAMClient) UseAccount(string)                                        {}
 func (fakeIAMClient) OIDCProviderExists(context.Context, string) (bool, error) { return false, nil }
 func (fakeIAMClient) GetRole(context.Context, string) (*iamcli.Role, error) {
 	return nil, errors.New("NoSuchEntity")

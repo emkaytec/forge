@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -42,16 +43,57 @@ func IsNotFound(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
 
+func IsAlreadyExists(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	message := strings.ToLower(apiErr.Message)
+	return apiErr.StatusCode == http.StatusConflict ||
+		strings.Contains(message, "already exists") ||
+		strings.Contains(message, "already been taken")
+}
+
 func NewClientFromEnv() (*Client, error) {
 	token := strings.TrimSpace(os.Getenv("TF_TOKEN_app_terraform_io"))
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv("TFE_TOKEN"))
 	}
 	if token == "" {
-		return nil, fmt.Errorf("missing HCP Terraform token: set TF_TOKEN_app_terraform_io or TFE_TOKEN")
+		token = terraformCLICredentialsToken("app.terraform.io")
+	}
+	if token == "" {
+		return nil, fmt.Errorf("missing HCP Terraform token: set TF_TOKEN_app_terraform_io or TFE_TOKEN, or run `terraform login`")
 	}
 
 	return NewClient(DefaultBaseURL, token, nil), nil
+}
+
+func terraformCLICredentialsToken(host string) string {
+	path := strings.TrimSpace(os.Getenv("TF_CLI_CONFIG_FILE"))
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		path = filepath.Join(home, ".terraform.d", "credentials.tfrc.json")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+
+	var document struct {
+		Credentials map[string]struct {
+			Token string `json:"token"`
+		} `json:"credentials"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(document.Credentials[host].Token)
 }
 
 func NewClient(baseURL string, token string, httpClient *http.Client) *Client {
@@ -71,12 +113,7 @@ type Workspace struct {
 	Name             string
 	ExecutionMode    string
 	TerraformVersion string
-	VCSRepo          *WorkspaceVCSRepo
 	ProjectID        string
-}
-
-type WorkspaceVCSRepo struct {
-	Identifier string `json:"identifier"`
 }
 
 type Project struct {
@@ -97,7 +134,6 @@ type WorkspaceVariable struct {
 type WorkspaceRequest struct {
 	ExecutionMode    *string
 	TerraformVersion *string
-	VCSRepo          *WorkspaceVCSRepo
 	ProjectID        *string
 }
 
@@ -245,10 +281,9 @@ func (c *Client) UpdateVariable(ctx context.Context, workspaceID string, variabl
 type workspaceResponseData struct {
 	ID         string `json:"id"`
 	Attributes struct {
-		Name             string            `json:"name"`
-		ExecutionMode    string            `json:"execution-mode"`
-		TerraformVersion string            `json:"terraform-version"`
-		VCSRepo          *WorkspaceVCSRepo `json:"vcs-repo"`
+		Name             string `json:"name"`
+		ExecutionMode    string `json:"execution-mode"`
+		TerraformVersion string `json:"terraform-version"`
 	} `json:"attributes"`
 	Relationships struct {
 		Project struct {
@@ -265,7 +300,6 @@ func (d workspaceResponseData) toWorkspace() *Workspace {
 		Name:             d.Attributes.Name,
 		ExecutionMode:    d.Attributes.ExecutionMode,
 		TerraformVersion: d.Attributes.TerraformVersion,
-		VCSRepo:          d.Attributes.VCSRepo,
 	}
 	if d.Relationships.Project.Data != nil {
 		workspace.ProjectID = d.Relationships.Project.Data.ID
@@ -284,10 +318,6 @@ func buildWorkspacePayload(name string, request WorkspaceRequest) map[string]any
 	if request.TerraformVersion != nil {
 		attributes["terraform-version"] = *request.TerraformVersion
 	}
-	if request.VCSRepo != nil {
-		attributes["vcs-repo"] = request.VCSRepo
-	}
-
 	data := map[string]any{
 		"type": "workspaces",
 	}
