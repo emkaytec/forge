@@ -84,8 +84,9 @@ metadata:
 spec:
   name: github-actions
   account_id: "123456789012"
-  oidc_provider: token.actions.githubusercontent.com
-  oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
+  trusts:
+    - oidc_provider: token.actions.githubusercontent.com
+      oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
 `,
 			assert: func(t *testing.T, manifest *schema.Manifest) {
 				t.Helper()
