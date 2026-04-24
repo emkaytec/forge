@@ -183,9 +183,9 @@ func (s *HCPTFWorkspaceSpec) Validate() error {
 	}
 
 	switch s.Environment {
-	case "", "dev", "pre", "prod":
+	case "", "dev", "pre", "prod", "admin":
 	default:
-		return invalidField("spec.environment", "must be one of dev, pre, or prod")
+		return invalidField("spec.environment", "must be one of dev, pre, prod, or admin")
 	}
 
 	if s.Organization == "" {
