@@ -1,4 +1,4 @@
-// Package local hosts the forge reconcile local executor and the
+// Package local hosts the staged local reconcile executor and the
 // workstation-only handlers behind it.
 package local
 

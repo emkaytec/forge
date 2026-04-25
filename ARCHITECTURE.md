@@ -15,7 +15,6 @@ forge/
 │   ├── workstation/     # `forge workstation` domain
 │   ├── manifest/        # manifest authoring and validation domain
 │   ├── reconcile/       # shared reconciliation planning layer and per-target executors
-│   ├── reconcilecmd/    # `forge reconcile` command shell over the shared reconcile engine
 │   ├── initcmd/         # `forge init` domain (renamed from `init` to avoid confusion with Go's special `init()` semantics and keep directory/package naming unambiguous)
 │   └── local/           # reserved: local development environment domain (not yet implemented)
 ├── examples/            # sanitized sample manifests and public-safe examples
@@ -46,12 +45,11 @@ If a new file could plausibly live in either directory, choose `internal/` until
 
 Each operator-facing concern is a **command domain** — a directory under `internal/` that owns a single cobra command group plus its subcommands. The implemented domains today are:
 
-- `manifest` for `forge manifest compose|generate|validate`
+- `manifest` for `forge manifest generate|validate`
 - `workstation` for `forge workstation ...`
 - `initcmd` for `forge init ...`
-- `reconcilecmd` for `forge reconcile local|remote`
 
-`internal/reconcile/` remains the shared planning layer and per-target executor package underneath `reconcilecmd`. Keeping the operator-facing command shell separate avoids an import cycle with the local and remote executor packages while still preserving a later carve-out path into `anvil`. The remaining reserved domain today is `local`.
+`forge reconcile` is no longer part of the public command surface. The remaining `internal/reconcile/` package is retained only as staged implementation history until the repo family either migrates or removes that runtime deliberately. The remaining reserved domain today is `local`.
 
 ### Registration pattern
 

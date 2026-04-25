@@ -1,0 +1,24 @@
+apiVersion: anvil.emkaytec.dev/v1alpha1
+kind: GitHubRepository
+metadata:
+  name: docs-site
+spec:
+  repository:
+    name: docs-site
+    description: Public documentation site.
+    visibility: public
+    topics:
+      - docs
+      - website
+    autoInit: true
+    defaultBranch: main
+    features:
+      hasIssues: true
+      hasProjects: false
+      hasWiki: false
+      hasDiscussions: false
+    mergePolicy:
+      allowSquashMerge: true
+      allowMergeCommit: false
+      allowRebaseMerge: true
+      deleteBranchOnMerge: true

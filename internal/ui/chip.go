@@ -44,7 +44,7 @@ func RenderChip(label, value string, labelWidth int) string {
 }
 
 // RenderSectionHeader renders a one-line heading for interactive wizards,
-// e.g. "━━ Generate aws-iam-provisioner ━━".
+// e.g. "━━ Generate github-repo ━━".
 func RenderSectionHeader(title string) string {
 	return HeadingStyle.Render(fmt.Sprintf("━━ %s ━━", title))
 }

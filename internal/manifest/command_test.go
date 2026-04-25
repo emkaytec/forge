@@ -11,7 +11,7 @@ func TestCommandRegistersManifestSubcommands(t *testing.T) {
 		t.Fatalf("Use = %q, want manifest", cmd.Use)
 	}
 
-	tests := []string{"compose", "generate", "validate"}
+	tests := []string{"generate", "validate"}
 	for _, subcommandName := range tests {
 		subcommand, _, err := cmd.Find([]string{subcommandName})
 		if err != nil {
@@ -25,5 +25,9 @@ func TestCommandRegistersManifestSubcommands(t *testing.T) {
 		if subcommand.Name() != subcommandName {
 			t.Fatalf("%s Name = %q, want %q", subcommandName, subcommand.Name(), subcommandName)
 		}
+	}
+
+	if subcommand, _, err := cmd.Find([]string{"compose"}); err == nil && subcommand.Name() == "compose" {
+		t.Fatal("compose subcommand should not be registered")
 	}
 }

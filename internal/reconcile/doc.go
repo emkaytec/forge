@@ -1,16 +1,14 @@
-// Package reconcile implements the shared planning layer behind
-// forge reconcile local and forge reconcile remote, plus the first
-// target executors.
+// Package reconcile implements the staged planning layer from Forge's
+// earlier reconcile command surface, plus the first target executors.
 //
 // The package follows ADR 0003 (docs/adr/0003-split-reconcile-by-execution-target.md):
 // both reconcile targets share the front half — discovery, decode,
 // validation, compatibility filtering, and plan construction — and
-// swap executors underneath. Forge owns the operator CLI and target
-// selection. Remote reconciliation runs through an embedded engine
-// today, but the package split keeps that runtime easy to carve back
-// out into anvil later. Local reconciliation hosts workstation-only
-// handlers (LaunchAgent first) because those do not have a home in
-// anvil.
+// swap executors underneath. The public CLI command has been removed,
+// but the package split keeps that runtime easy to carve back out into
+// anvil later or delete deliberately. Local reconciliation hosted
+// workstation-only handlers (LaunchAgent first) because those did not
+// have a home in anvil.
 //
 // # Idempotency guarantees
 //

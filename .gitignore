@@ -2,6 +2,7 @@
 
 /bin/
 /dist/
+.forge/
 coverage.out
 *.coverprofile
 *.test

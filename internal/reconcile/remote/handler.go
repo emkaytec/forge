@@ -1,6 +1,6 @@
-// Package remote hosts the forge reconcile remote executor and the
-// per-kind handler seams that MK-14 will replace with real anvil
-// delegation.
+// Package remote hosts the staged remote reconcile executor and the
+// per-kind handler seams that a future migration may replace with real
+// anvil delegation.
 package remote
 
 import (

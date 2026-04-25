@@ -2,584 +2,306 @@ package manifest
 
 import (
 	"bufio"
-	"context"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/emkaytec/forge/internal/aws/accounts"
-	"github.com/emkaytec/forge/internal/aws/oidc"
-	ghapi "github.com/emkaytec/forge/internal/github"
 	"github.com/emkaytec/forge/internal/ui"
-	"github.com/emkaytec/forge/pkg/schema"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
-
-var defaultManagedPolicies = []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"}
 
 const (
-	defaultGitHubVisibility        = "private"
-	defaultGitHubDefaultBranch     = "main"
-	defaultHCPTFOrganization       = "emkaytec"
-	defaultHCPTFProject            = "*"
-	defaultHCPTFExecutionMode      = "remote"
-	defaultHCPTFTerraformVersion   = "1.14.0"
-	defaultLaunchAgentScheduleKind = "interval"
-	defaultLaunchAgentInterval     = 86400
-	defaultLaunchAgentHour         = 9
-	defaultLaunchAgentMinute       = 30
-	defaultLaunchAgentRunAtLoad    = true
-	launchAgentLabelPrefix         = "dev.emkaytec."
+	anvilAPIVersion             = "anvil.emkaytec.dev/v1alpha1"
+	anvilGitHubRepositoryKind   = "GitHubRepository"
+	defaultGitHubVisibility     = "private"
+	defaultGitHubDefaultBranch  = "main"
+	defaultTerraformProjectName = "*"
+	defaultTerraformMode        = "remote"
+	defaultTerraformAWSRegion   = "us-east-1"
+
+	// ForgeDirName is the hidden container Anvil reads for desired-state YAML.
+	ForgeDirName = ".forge"
 )
 
-type gitHubRepoTemplateData struct {
-	GeneratorCommand string
-	ApplicationName  string
-	ManifestName     string
-	Owner            string
-	Visibility       string
-	Description      string
-	Topics           []string
-	DefaultBranch    string
+var (
+	githubRepositoryNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	environmentNamePattern      = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	awsAccountIDPattern         = regexp.MustCompile(`^[0-9]{12}$`)
+)
+
+type gitHubRepoGenerateOptions struct {
+	outputDir        string
+	name             string
+	visibility       string
+	description      string
+	homepage         string
+	topics           []string
+	defaultBranch    string
+	terraform        bool
+	environment      string
+	accountProfile   string
+	accountID        string
+	projectName      string
+	executionMode    string
+	terraformVersion string
 }
 
-type hcpTFWorkspaceTemplateData struct {
-	GeneratorCommand string
-	ManifestName     string
-	WorkspaceName    string
-	Environment      string
-	Organization     string
-	Project          string
-	AccountID        string
-	ExecutionMode    string
-	TerraformVersion string
+type anvilGitHubRepositoryManifest struct {
+	APIVersion string                    `yaml:"apiVersion"`
+	Kind       string                    `yaml:"kind"`
+	Metadata   anvilMetadata             `yaml:"metadata"`
+	Spec       anvilGitHubRepositorySpec `yaml:"spec"`
 }
 
-type awsIAMProvisionerTrustTemplateData struct {
-	OIDCProvider string
-	OIDCSubject  string
+type anvilMetadata struct {
+	Name string `yaml:"name"`
 }
 
-type awsIAMProvisionerTemplateData struct {
-	GeneratorCommand string
-	ApplicationName  string
-	RoleName         string
-	AccountID        string
-	Trusts           []awsIAMProvisionerTrustTemplateData
-	ManagedPolicies  []string
+type anvilGitHubRepositorySpec struct {
+	CreateTerraformWorkspaces bool                        `yaml:"createTerraformWorkspaces,omitempty"`
+	Repository                anvilRepository             `yaml:"repository"`
+	AWS                       *anvilAWS                   `yaml:"aws,omitempty"`
+	Environments              map[string]anvilEnvironment `yaml:"environments,omitempty"`
+	Workspace                 *anvilWorkspace             `yaml:"workspace,omitempty"`
 }
 
-type launchAgentTemplateData struct {
-	GeneratorCommand string
-	ApplicationName  string
-	Label            string
-	Command          string
-	ScheduleType     string
-	IntervalSeconds  int
-	Hour             int
-	Minute           int
-	RunAtLoad        bool
+type anvilRepository struct {
+	Name          string            `yaml:"name,omitempty"`
+	Description   string            `yaml:"description,omitempty"`
+	Visibility    string            `yaml:"visibility,omitempty"`
+	Homepage      string            `yaml:"homepage,omitempty"`
+	Topics        []string          `yaml:"topics,omitempty"`
+	AutoInit      *bool             `yaml:"autoInit,omitempty"`
+	DefaultBranch string            `yaml:"defaultBranch,omitempty"`
+	Features      *anvilFeatures    `yaml:"features,omitempty"`
+	MergePolicy   *anvilMergePolicy `yaml:"mergePolicy,omitempty"`
+}
+
+type anvilFeatures struct {
+	HasIssues      *bool `yaml:"hasIssues,omitempty"`
+	HasProjects    *bool `yaml:"hasProjects,omitempty"`
+	HasWiki        *bool `yaml:"hasWiki,omitempty"`
+	HasDiscussions *bool `yaml:"hasDiscussions,omitempty"`
+}
+
+type anvilMergePolicy struct {
+	AllowSquashMerge    *bool `yaml:"allowSquashMerge,omitempty"`
+	AllowMergeCommit    *bool `yaml:"allowMergeCommit,omitempty"`
+	AllowRebaseMerge    *bool `yaml:"allowRebaseMerge,omitempty"`
+	DeleteBranchOnMerge *bool `yaml:"deleteBranchOnMerge,omitempty"`
+}
+
+type anvilAWS struct {
+	Region string `yaml:"region,omitempty"`
+}
+
+type anvilEnvironment struct {
+	AWS anvilEnvironmentAWS `yaml:"aws"`
+}
+
+type anvilEnvironmentAWS struct {
+	AccountID string `yaml:"accountId"`
+}
+
+type anvilWorkspace struct {
+	ProjectName      string `yaml:"projectName,omitempty"`
+	ExecutionMode    string `yaml:"executionMode,omitempty"`
+	TerraformVersion string `yaml:"terraformVersion,omitempty"`
 }
 
 func newGenerateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "generate",
-		Short: "Generate starter Forge manifests",
-		Long:  "Generate starter manifests for the supported Forge schema kinds.",
+		Short: "Generate Anvil-compatible manifests",
+		Long:  "Generate manifests for the supported Anvil Terraform YAML contracts.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
 
-	cmd.AddCommand(
-		newGenerateGitHubRepoCommand(),
-		newGenerateHCPTFWorkspaceCommand(),
-		newGenerateAWSIAMProvisionerCommand(),
-		newGenerateLaunchAgentCommand(),
-	)
+	cmd.AddCommand(newGenerateGitHubRepoCommand())
 
 	return cmd
 }
 
 func newGenerateGitHubRepoCommand() *cobra.Command {
-	var (
-		outputDir     string
-		application   string
-		owner         string
-		visibility    string
-		description   string
-		topics        []string
-		defaultBranch string
-	)
+	var options gitHubRepoGenerateOptions
 
 	cmd := &cobra.Command{
-		Use:   "github-repo [application]",
-		Short: "Write a starter github-repo manifest",
-		Long: strings.TrimSpace(`Write a starter github-repo manifest.
+		Use:   "github-repo [name]",
+		Short: "Write an Anvil GitHubRepository manifest",
+		Long: strings.TrimSpace(`Write an Anvil-compatible GitHubRepository manifest.
 
-If the required inputs are not provided as flags, Forge prompts for:
-  1. the application name
-  2. the repository owner (user or organization); defaults to the current GitHub login when available
-  3. the repository visibility (public or private)
-  4. an optional description and topic list
-  5. the default branch
-
-Forge writes the manifest to .forge/<application>/github-repo.yaml under the application directory.`),
+Forge writes one YAML file to .forge/<name>.yaml. When Terraform workspace
+creation is enabled, Forge prompts for the minimum required environment and AWS
+account inputs needed by the Anvil Terraform module workflow.`),
 		Example: strings.Join([]string{
-			"  forge manifest generate github-repo forge",
-			"  forge manifest generate github-repo --application forge --owner emkaytec --visibility private --default-branch main",
-			"  forge manifest generate github-repo --application forge --owner emkaytec --topic platform --topic automation",
+			"  forge manifest generate github-repo docs-site",
+			"  forge manifest generate github-repo complete-service --terraform --environment admin --account-id 123456789012",
+			"  forge manifest generate github-repo --name complete-service --visibility private --topic terraform",
 		}, "\n"),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateOutputDir(outputDir); err != nil {
+			if err := validateOutputDir(options.outputDir); err != nil {
 				return err
 			}
 
 			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			configureGitHubRepoFlow(p)
 
-			applicationName, err := resolveApplicationName(p, args, application)
+			repositoryName, err := resolveRepositoryName(p, args, options.name)
 			if err != nil {
 				return err
 			}
 
-			ownerValue, err := resolveGitHubOwner(cmd.Context(), p, owner)
+			terraformRepo, err := resolveTerraformRepo(p, cmd.Flags().Changed("terraform"), options)
 			if err != nil {
 				return err
 			}
 
-			visibilityValue, err := resolveSelect(p, "Visibility", visibility, []selectOption{
-				{Label: "Private", Value: "private"},
-				{Label: "Public", Value: "public"},
-			}, 0)
+			visibility, err := resolveVisibility(options.visibility)
 			if err != nil {
 				return err
 			}
 
-			descriptionValue, err := resolveOptionalText(p, "Description", description, "")
-			if err != nil {
-				return err
+			defaultBranch := strings.TrimSpace(options.defaultBranch)
+			if defaultBranch == "" {
+				defaultBranch = defaultGitHubDefaultBranch
 			}
 
-			topicsValue, err := resolveCSV(p, "Topics (comma-separated)", topics, nil)
-			if err != nil {
-				return err
+			manifest := anvilGitHubRepositoryManifest{
+				APIVersion: anvilAPIVersion,
+				Kind:       anvilGitHubRepositoryKind,
+				Metadata: anvilMetadata{
+					Name: repositoryName,
+				},
+				Spec: anvilGitHubRepositorySpec{
+					Repository: anvilRepository{
+						Name:          repositoryName,
+						Description:   strings.TrimSpace(options.description),
+						Visibility:    visibility,
+						Homepage:      strings.TrimSpace(options.homepage),
+						Topics:        normalizeStringList(options.topics),
+						AutoInit:      boolPtr(true),
+						DefaultBranch: defaultBranch,
+						Features: &anvilFeatures{
+							HasIssues:      boolPtr(true),
+							HasProjects:    boolPtr(false),
+							HasWiki:        boolPtr(false),
+							HasDiscussions: boolPtr(false),
+						},
+						MergePolicy: &anvilMergePolicy{
+							AllowSquashMerge:    boolPtr(true),
+							AllowMergeCommit:    boolPtr(false),
+							AllowRebaseMerge:    boolPtr(true),
+							DeleteBranchOnMerge: boolPtr(true),
+						},
+					},
+				},
 			}
 
-			defaultBranchValue, err := resolveOptionalText(p, "Default branch", defaultBranch, defaultGitHubDefaultBranch)
-			if err != nil {
-				return err
-			}
-
-			if p.preludeDone {
-				fmt.Fprintln(p.out)
-			}
-
-			manifestName := scopedManifestName(ownerValue, applicationName)
-			data := gitHubRepoTemplateData{
-				GeneratorCommand: fmt.Sprintf("forge manifest generate github-repo %s", applicationName),
-				ApplicationName:  applicationName,
-				ManifestName:     manifestName,
-				Owner:            ownerValue,
-				Visibility:       visibilityValue,
-				Description:      descriptionValue,
-				Topics:           topicsValue,
-				DefaultBranch:    defaultBranchValue,
-			}
-
-			return writeGeneratedManifest(cmd, applicationName, "github-repo", outputDir, renderGitHubRepoTemplateWithData(data))
-		},
-	}
-
-	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&application, "application", "", "Application name to use for spec.name and the output directory")
-	cmd.Flags().StringVar(&owner, "owner", "", "GitHub user or organization that will own the repository")
-	cmd.Flags().StringVar(&visibility, "visibility", "", "Repository visibility: public or private")
-	cmd.Flags().StringVar(&description, "description", "", "Repository description (optional)")
-	cmd.Flags().StringSliceVar(&topics, "topic", nil, "GitHub topic slug to attach (repeat or comma-separate)")
-	cmd.Flags().StringVar(&defaultBranch, "default-branch", "", "Default branch name")
-
-	return cmd
-}
-
-func newGenerateHCPTFWorkspaceCommand() *cobra.Command {
-	var (
-		outputDir        string
-		environment      string
-		environmentSet   bool
-		accountProfile   string
-		accountID        string
-		organization     string
-		project          string
-		vcsRepo          string
-		executionMode    string
-		terraformVersion string
-	)
-
-	cmd := &cobra.Command{
-		Use:   "hcp-tf-workspace [vcs-repo]",
-		Short: "Write a starter hcp-tf-workspace manifest",
-		Long: strings.TrimSpace(`Write a starter hcp-tf-workspace manifest.
-
-If the required inputs are not provided as flags, Forge prompts for:
-  1. the connected VCS repo (owner/repo)
-  2. the deployment environment and AWS account (environment may be left blank
-     to emit a workspace with no environment suffix, e.g. for admin repos)
-  3. the HCP Terraform organization and optional project
-  4. the execution mode and Terraform version
-
-Forge derives a shared application directory from the repository name
-(for example, emkaytec/forge becomes forge). When an environment is set,
-Forge appends it to metadata.name and spec.name and writes the manifest
-to .forge/<application-name>/hcp-tf-workspace-<env>.yml; otherwise the
-manifest is written to .forge/<application-name>/hcp-tf-workspace.yml.`),
-		Example: strings.Join([]string{
-			"  forge manifest generate hcp-tf-workspace emkaytec/forge --environment dev --account-id 123456789012",
-			"  forge manifest generate hcp-tf-workspace --vcs-repo emkaytec/forge --environment pre --account-profile preprod-admin --organization emkaytec --project platform",
-			"  forge manifest generate hcp-tf-workspace --vcs-repo emkaytec/forge --environment prod --account-id 123456789012 --organization emkaytec --execution-mode remote",
-		}, "\n"),
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateOutputDir(outputDir); err != nil {
-				return err
-			}
-
-			environmentSet = cmd.Flags().Changed("environment")
-
-			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
-			configureHCPTFWorkspaceFlow(p)
-
-			vcsRepoValue, err := resolveRequiredVCSRepo(p, args, vcsRepo)
-			if err != nil {
-				return err
-			}
-
-			environmentValue, err := resolveOptionalEnvironment(p, environment, environmentSet)
-			if err != nil {
-				return err
-			}
-
-			accountIDValue, err := resolveAWSAccountID(p, accountProfile, accountID, environmentValue)
-			if err != nil {
-				return err
-			}
-
-			applicationName, err := applicationNameFromVCSRepo(vcsRepoValue)
-			if err != nil {
-				return err
-			}
-			manifestBaseName, err := manifestNameFromVCSRepo(vcsRepoValue)
-			if err != nil {
-				return err
-			}
-			manifestName := appendHCPTFEnvironmentSuffix(manifestBaseName, environmentValue)
-
-			workspaceName, err := workspaceNameFromVCSRepo(vcsRepoValue)
-			if err != nil {
-				return err
-			}
-			workspaceName = appendHCPTFEnvironmentSuffix(workspaceName, environmentValue)
-
-			organizationValue, err := resolveRequiredText(p, "HCP TF organization", organization, defaultHCPTFOrganization)
-			if err != nil {
-				return err
-			}
-
-			projectValue, err := resolveOptionalText(p, "HCP TF project", project, defaultHCPTFProject)
-			if err != nil {
-				return err
-			}
-
-			executionModeValue, err := resolveSelect(p, "Execution mode", executionMode, []selectOption{
-				{Label: "Remote", Value: "remote"},
-				{Label: "Local", Value: "local"},
-				{Label: "Agent", Value: "agent"},
-			}, 0)
-			if err != nil {
-				return err
-			}
-
-			terraformVersionValue, err := resolveOptionalText(p, "Terraform version", terraformVersion, defaultHCPTFTerraformVersion)
-			if err != nil {
-				return err
-			}
-
-			if p.preludeDone {
-				fmt.Fprintln(p.out)
-			}
-
-			data := hcpTFWorkspaceTemplateData{
-				GeneratorCommand: fmt.Sprintf("forge manifest generate hcp-tf-workspace %s", vcsRepoValue),
-				ManifestName:     manifestName,
-				WorkspaceName:    workspaceName,
-				Environment:      environmentValue,
-				Organization:     organizationValue,
-				Project:          projectValue,
-				AccountID:        accountIDValue,
-				ExecutionMode:    executionModeValue,
-				TerraformVersion: terraformVersionValue,
-			}
-
-			return writeGeneratedManifestWithFilename(
-				cmd,
-				applicationName,
-				"hcp-tf-workspace",
-				hcpTFWorkspaceFilename(environmentValue),
-				outputDir,
-				renderHCPTFWorkspaceTemplateWithData(data),
-			)
-		},
-	}
-
-	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, prod, admin, or empty for no suffix")
-	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS shared-config profile to derive the account ID from")
-	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
-	cmd.Flags().StringVar(&organization, "organization", "", "HCP Terraform organization slug")
-	cmd.Flags().StringVar(&project, "project", "", "HCP Terraform project name")
-	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected GitHub repository path, e.g. emkaytec/forge")
-	cmd.Flags().StringVar(&executionMode, "execution-mode", "", "Execution mode: remote, local, or agent")
-	cmd.Flags().StringVar(&terraformVersion, "terraform-version", "", "Pinned Terraform version for the workspace")
-
-	return cmd
-}
-
-func newGenerateAWSIAMProvisionerCommand() *cobra.Command {
-	var (
-		outputDir      string
-		vcsRepo        string
-		environment    string
-		accountProfile string
-		accountID      string
-		managedPolicy  []string
-	)
-
-	cmd := &cobra.Command{
-		Use:   "aws-iam-provisioner [vcs-repo]",
-		Short: "Write a starter aws-iam-provisioner manifest",
-		Long: strings.TrimSpace(`Write a starter aws-iam-provisioner manifest.
-
-If the required inputs are not provided as flags, Forge prompts for:
-  1. the connected VCS repo (owner/repo)
-  2. the deployment environment and AWS account (environment may be left blank
-     to emit a provisioner with no environment suffix, e.g. for admin repos)
-  3. the managed policy ARNs to attach
-
-Forge writes a single provisioner manifest whose IAM role trusts both the
-GitHub Actions and HCP Terraform OIDC providers. The shared application
-directory comes from the repository name; the manifest and role names stay
-owner-scoped with the environment suffix when one is selected. The HCP
-Terraform trust subject is derived as <owner>/*/<repo>[-env], and the manifest
-is written as
-.forge/<application>/aws-iam-provisioner[-<env>].yaml.`),
-		Example: strings.Join([]string{
-			"  forge manifest generate aws-iam-provisioner emkaytec/forge --environment dev --account-id 123456789012 --managed-policy arn:aws:iam::aws:policy/ReadOnlyAccess",
-			"  forge manifest generate aws-iam-provisioner --vcs-repo emkaytec/forge --environment prod --account-profile prod-admin",
-			"  forge manifest generate aws-iam-provisioner emkaytec/test-repo --environment pre --managed-policy arn:aws:iam::aws:policy/PowerUserAccess",
-		}, "\n"),
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateOutputDir(outputDir); err != nil {
-				return err
-			}
-
-			environmentSet := cmd.Flags().Changed("environment")
-
-			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
-			configureAWSIAMProvisionerFlow(p)
-
-			vcsRepoValue, err := resolveRequiredVCSRepo(p, args, vcsRepo)
-			if err != nil {
-				return err
-			}
-
-			environmentValue, err := resolveOptionalEnvironment(p, environment, environmentSet)
-			if err != nil {
-				return err
-			}
-
-			accountIDValue, err := resolveAWSAccountID(p, accountProfile, accountID, environmentValue)
-			if err != nil {
-				return err
-			}
-
-			directoryName, err := applicationNameFromVCSRepo(vcsRepoValue)
-			if err != nil {
-				return err
-			}
-
-			manifestRootName, err := manifestNameFromVCSRepo(vcsRepoValue)
-			if err != nil {
-				return err
-			}
-
-			targets, err := defaultAWSIAMProvisionerTargets(vcsRepoValue, environmentValue)
-			if err != nil {
-				return err
-			}
-
-			policies, err := resolveManagedPolicies(p, managedPolicy)
-			if err != nil {
-				return err
-			}
-
-			if p.preludeDone {
-				fmt.Fprintln(p.out)
-			}
-
-			return writeAWSIAMProvisionerManifest(
-				cmd,
-				directoryName,
-				manifestRootName,
-				environmentValue,
-				accountIDValue,
-				fmt.Sprintf("forge manifest generate aws-iam-provisioner %s", vcsRepoValue),
-				defaultAWSIAMProvisionerProviders(),
-				targets,
-				policies,
-				outputDir,
-			)
-		},
-	}
-
-	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&vcsRepo, "vcs-repo", "", "Connected GitHub repository path, e.g. emkaytec/forge")
-	cmd.Flags().StringVar(&environment, "environment", "", "Deployment environment: dev, pre, prod, or admin")
-	cmd.Flags().StringVar(&accountProfile, "account-profile", "", "AWS config profile to resolve the target account from")
-	cmd.Flags().StringVar(&accountID, "account-id", "", "12-digit AWS account ID to write into spec.account_id")
-	cmd.Flags().StringSliceVar(&managedPolicy, "managed-policy", nil, "Managed policy ARN to attach (repeat or comma-separate)")
-
-	return cmd
-}
-
-func newGenerateLaunchAgentCommand() *cobra.Command {
-	var (
-		outputDir       string
-		application     string
-		command         string
-		schedule        string
-		intervalSeconds int
-		hour            int
-		minute          int
-		runAtLoad       bool
-	)
-
-	cmd := &cobra.Command{
-		Use:   "launch-agent [application]",
-		Short: "Write a starter launch-agent manifest",
-		Long: strings.TrimSpace(`Write a starter launch-agent manifest.
-
-If the required inputs are not provided as flags, Forge prompts for:
-  1. the application name (drives metadata.name and the launchd label)
-  2. the command launchd should execute
-  3. the schedule type and its parameters
-  4. whether the agent should also run at load
-
-Forge writes the manifest to .forge/<application>/launch-agent.yaml under the application directory.`),
-		Example: strings.Join([]string{
-			"  forge manifest generate launch-agent brew-update --command \"/opt/homebrew/bin/brew update\"",
-			"  forge manifest generate launch-agent --application brew-update --command \"/opt/homebrew/bin/brew update\" --schedule interval --interval-seconds 86400",
-			"  forge manifest generate launch-agent --application nightly-report --command \"/usr/local/bin/report.sh\" --schedule calendar --hour 2 --minute 15",
-		}, "\n"),
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateOutputDir(outputDir); err != nil {
-				return err
-			}
-
-			p := newPromptSession(cmd.InOrStdin(), cmd.OutOrStdout())
-			configureLaunchAgentFlow(p)
-
-			applicationName, err := resolveApplicationName(p, args, application)
-			if err != nil {
-				return err
-			}
-
-			commandValue, err := resolveRequiredText(p, "Command", command, "")
-			if err != nil {
-				return err
-			}
-
-			scheduleValue, err := resolveSelect(p, "Schedule type", schedule, []selectOption{
-				{Label: "Interval", Value: "interval"},
-				{Label: "Calendar", Value: "calendar"},
-			}, 0)
-			if err != nil {
-				return err
-			}
-
-			data := launchAgentTemplateData{
-				GeneratorCommand: fmt.Sprintf("forge manifest generate launch-agent %s", applicationName),
-				ApplicationName:  applicationName,
-				Label:            launchAgentLabelPrefix + applicationName,
-				Command:          commandValue,
-				ScheduleType:     scheduleValue,
-			}
-
-			switch scheduleValue {
-			case "interval":
-				data.IntervalSeconds, err = resolveInteger(p, "Interval seconds",
-					cmd.Flags().Changed("interval-seconds"), intervalSeconds, defaultLaunchAgentInterval)
-				if err != nil {
-					return err
-				}
-			case "calendar":
-				data.Hour, err = resolveInteger(p, "Hour (0–23)",
-					cmd.Flags().Changed("hour"), hour, defaultLaunchAgentHour)
-				if err != nil {
-					return err
-				}
-				data.Minute, err = resolveInteger(p, "Minute (0–59)",
-					cmd.Flags().Changed("minute"), minute, defaultLaunchAgentMinute)
-				if err != nil {
+			if terraformRepo {
+				if err := populateTerraformInputs(p, &manifest, options); err != nil {
 					return err
 				}
 			}
 
-			data.RunAtLoad, err = resolveYesNo(p, "Run at load",
-				cmd.Flags().Changed("run-at-load"), runAtLoad, defaultLaunchAgentRunAtLoad)
-			if err != nil {
-				return err
-			}
-
 			if p.preludeDone {
 				fmt.Fprintln(p.out)
 			}
 
-			return writeGeneratedManifest(cmd, applicationName, "launch-agent", outputDir, renderLaunchAgentTemplateWithData(data))
+			contents, err := renderAnvilManifest(manifest)
+			if err != nil {
+				return err
+			}
+
+			return writeGeneratedManifest(cmd, repositoryName, options.outputDir, contents)
 		},
 	}
 
-	cmd.Flags().StringVar(&outputDir, "dir", "", "Write the generated manifest under this relative directory")
-	cmd.Flags().StringVar(&application, "application", "", "Application name to use for metadata.name and the launchd label")
-	cmd.Flags().StringVar(&command, "command", "", "Command line launchd should execute")
-	cmd.Flags().StringVar(&schedule, "schedule", "", "Schedule type: interval or calendar")
-	cmd.Flags().IntVar(&intervalSeconds, "interval-seconds", 0, "Seconds between runs for interval schedules")
-	cmd.Flags().IntVar(&hour, "hour", 0, "Hour (0–23) for calendar schedules")
-	cmd.Flags().IntVar(&minute, "minute", 0, "Minute (0–59) for calendar schedules")
-	cmd.Flags().BoolVar(&runAtLoad, "run-at-load", defaultLaunchAgentRunAtLoad, "Also run the agent when launchd loads it")
+	cmd.Flags().StringVar(&options.outputDir, "dir", "", "Write the generated manifest under this relative directory")
+	cmd.Flags().StringVar(&options.name, "name", "", "GitHub repository name")
+	cmd.Flags().StringVar(&options.visibility, "visibility", "", "Repository visibility: public, private, or internal")
+	cmd.Flags().StringVar(&options.description, "description", "", "Repository description")
+	cmd.Flags().StringVar(&options.homepage, "homepage", "", "Repository homepage URL")
+	cmd.Flags().StringSliceVar(&options.topics, "topic", nil, "GitHub topic slug to attach (repeat or comma-separate)")
+	cmd.Flags().StringVar(&options.defaultBranch, "default-branch", "", "Default branch name")
+	cmd.Flags().BoolVar(&options.terraform, "terraform", false, "Create Terraform workspace and AWS provisioning resources")
+	cmd.Flags().StringVar(&options.environment, "environment", "", "Terraform environment key, e.g. admin, dev, pre, or prod")
+	cmd.Flags().StringVar(&options.accountProfile, "account-profile", "", "AWS shared-config profile to derive the account ID from")
+	cmd.Flags().StringVar(&options.accountID, "account-id", "", "12-digit AWS account ID for the Terraform environment")
+	cmd.Flags().StringVar(&options.projectName, "project-name", "", "HCP Terraform project name to use in generated workspace subjects")
+	cmd.Flags().StringVar(&options.executionMode, "execution-mode", "", "HCP Terraform execution mode: remote, local, or agent")
+	cmd.Flags().StringVar(&options.terraformVersion, "terraform-version", "", "Pinned Terraform version for generated workspaces")
 
 	return cmd
 }
 
-func writeGeneratedManifest(cmd *cobra.Command, applicationName, resource, outputDir, contents string) error {
-	return writeGeneratedManifestWithFilename(cmd, applicationName, resource, generatedManifestFilename(resource), outputDir, contents)
-}
-
-func writeGeneratedManifestWithFilename(cmd *cobra.Command, applicationName, resource, filename, outputDir, contents string) error {
-	if err := validateGeneratedManifest(contents); err != nil {
+func populateTerraformInputs(p *promptSession, manifest *anvilGitHubRepositoryManifest, options gitHubRepoGenerateOptions) error {
+	environment, err := resolveTerraformEnvironment(p, options.environment)
+	if err != nil {
 		return err
 	}
 
-	path, err := applicationDirectoryOutputPath(applicationName, filename, outputDir)
+	accountID, err := resolveAWSAccountID(p, options.accountProfile, options.accountID, environment)
+	if err != nil {
+		return err
+	}
+
+	projectName := strings.TrimSpace(options.projectName)
+	if projectName == "" {
+		projectName = defaultTerraformProjectName
+	}
+
+	executionMode, err := resolveExecutionMode(options.executionMode)
+	if err != nil {
+		return err
+	}
+
+	manifest.Spec.CreateTerraformWorkspaces = true
+	manifest.Spec.AWS = &anvilAWS{Region: defaultTerraformAWSRegion}
+	manifest.Spec.Environments = map[string]anvilEnvironment{
+		environment: {
+			AWS: anvilEnvironmentAWS{AccountID: accountID},
+		},
+	}
+	manifest.Spec.Workspace = &anvilWorkspace{
+		ProjectName:      projectName,
+		ExecutionMode:    executionMode,
+		TerraformVersion: strings.TrimSpace(options.terraformVersion),
+	}
+
+	return nil
+}
+
+func renderAnvilManifest(manifest anvilGitHubRepositoryManifest) (string, error) {
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(manifest); err != nil {
+		return "", err
+	}
+	if err := encoder.Close(); err != nil {
+		return "", err
+	}
+
+	contents := buf.String()
+	if err := validateAnvilManifest([]byte(contents)); err != nil {
+		return "", fmt.Errorf("generated manifest is invalid: %w", err)
+	}
+
+	return contents, nil
+}
+
+func writeGeneratedManifest(cmd *cobra.Command, manifestName, outputDir, contents string) error {
+	path, err := generatedManifestOutputPath(manifestName, outputDir)
 	if err != nil {
 		return err
 	}
@@ -592,35 +314,17 @@ func writeGeneratedManifestWithFilename(cmd *cobra.Command, applicationName, res
 		return err
 	}
 
-	ui.Success(cmd.OutOrStdout(), fmt.Sprintf("Wrote %s manifest to %s", resource, path))
+	ui.Success(cmd.OutOrStdout(), fmt.Sprintf("Wrote github-repo manifest to %s", path))
 	return nil
 }
 
-func validateGeneratedManifest(contents string) error {
-	if _, err := schema.DecodeManifest([]byte(contents)); err != nil {
-		return fmt.Errorf("generated manifest is invalid: %w", err)
-	}
-
-	return nil
-}
-
-// ForgeDirName is the hidden container that wraps per-application manifest
-// directories (e.g. .forge/<application>/github-repo.yaml). The reconcile
-// walker special-cases this name so the default hidden-directory skip does
-// not hide generated manifests from `forge reconcile`.
-const ForgeDirName = ".forge"
-
-func applicationDirectoryOutputPath(name, filename, dir string) (string, error) {
+func generatedManifestOutputPath(name, dir string) (string, error) {
 	baseDir, err := resolveBaseOutputDir(dir)
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Join(baseDir, ForgeDirName, name, filename), nil
-}
-
-func generatedManifestFilename(resource string) string {
-	return resource + ".yaml"
+	return filepath.Join(baseDir, ForgeDirName, name+".yaml"), nil
 }
 
 func validateOutputDir(dir string) error {
@@ -664,8 +368,8 @@ func newPromptSession(in io.Reader, out io.Writer) *promptSession {
 	}
 }
 
-// runPrelude emits the flow-level prelude (e.g. section header + leading
-// blank line) exactly once, right before the first prompt writes output.
+// runPrelude emits the flow-level prelude exactly once, right before the first
+// prompt writes output.
 func (p *promptSession) runPrelude() {
 	if p.prelude == nil || p.preludeDone {
 		return
@@ -731,289 +435,130 @@ func configureFlow(p *promptSession, title string, labels []string) {
 
 func configureGitHubRepoFlow(p *promptSession) {
 	configureFlow(p, "Generate github-repo", []string{
-		"Application name",
-		"Repository owner",
-		"Visibility",
-		"Description",
-		"Topics (comma-separated)",
-		"Default branch",
-	})
-}
-
-func configureHCPTFWorkspaceFlow(p *promptSession) {
-	configureFlow(p, "Generate hcp-tf-workspace", []string{
-		"VCS repo (owner/repo)",
+		"Repository name",
+		"Is this a Terraform repo?",
 		"Environment",
 		"AWS account",
 		"AWS account ID",
-		"HCP TF organization",
-		"HCP TF project",
-		"Execution mode",
-		"Terraform version",
 	})
 }
 
-func hcpTFEnvironmentOptions() []selectOption {
+func resolveRepositoryName(p *promptSession, args []string, flagValue string) (string, error) {
+	normalizedFlag, err := normalizeRepositoryName(flagValue)
+	if err != nil && strings.TrimSpace(flagValue) != "" {
+		return "", err
+	}
+
+	if len(args) > 0 {
+		normalizedArg, err := normalizeRepositoryName(args[0])
+		if err != nil {
+			return "", err
+		}
+		if normalizedFlag != "" && normalizedFlag != normalizedArg {
+			return "", fmt.Errorf("repository name %q does not match --name %q", normalizedArg, normalizedFlag)
+		}
+		return normalizedArg, nil
+	}
+
+	if normalizedFlag != "" {
+		return normalizedFlag, nil
+	}
+
+	rawValue, err := inputPrompt(p, "Repository name", "", true)
+	if err != nil {
+		return "", err
+	}
+
+	return normalizeRepositoryName(rawValue)
+}
+
+func normalizeRepositoryName(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("repository name must not be empty")
+	}
+	if !githubRepositoryNamePattern.MatchString(value) {
+		return "", fmt.Errorf("repository name must contain only letters, numbers, dots, underscores, and hyphens")
+	}
+	return value, nil
+}
+
+func resolveTerraformRepo(p *promptSession, flagChanged bool, options gitHubRepoGenerateOptions) (bool, error) {
+	if flagChanged {
+		return options.terraform, nil
+	}
+	if hasTerraformInputs(options) {
+		return true, nil
+	}
+	return resolveYesNo(p, "Is this a Terraform repo?", false, false, false)
+}
+
+func hasTerraformInputs(options gitHubRepoGenerateOptions) bool {
+	return strings.TrimSpace(options.environment) != "" ||
+		strings.TrimSpace(options.accountProfile) != "" ||
+		strings.TrimSpace(options.accountID) != "" ||
+		strings.TrimSpace(options.projectName) != "" ||
+		strings.TrimSpace(options.executionMode) != "" ||
+		strings.TrimSpace(options.terraformVersion) != ""
+}
+
+func resolveVisibility(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultGitHubVisibility, nil
+	}
+	switch value {
+	case "public", "private", "internal":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid visibility %q; allowed: public, private, internal", value)
+	}
+}
+
+func terraformEnvironmentOptions() []selectOption {
 	return []selectOption{
+		{Label: "Admin", Value: "admin"},
 		{Label: "Development", Value: "dev"},
 		{Label: "Pre-prod", Value: "pre"},
-		{Label: "Prod", Value: "prod"},
-		{Label: "Admin", Value: "admin"},
+		{Label: "Production", Value: "prod"},
 	}
 }
 
-// hcpTFOptionalEnvironmentOptions returns the environment selector with a
-// leading "None" option for workspaces that should not carry an environment
-// suffix (for example, an admin-owned repo with no per-environment fanout).
-func hcpTFOptionalEnvironmentOptions() []selectOption {
-	options := hcpTFEnvironmentOptions()
-	return append([]selectOption{{Label: "None (no environment suffix)", Value: ""}}, options...)
-}
-
-const noEnvironmentValue = "none"
-
-// resolveOptionalEnvironment honors an explicit --environment flag (including
-// empty string) while prompting for a selection when the flag was not set. The
-// "None" option in the selector maps to an empty spec.environment.
-func resolveOptionalEnvironment(p *promptSession, flagValue string, flagSet bool) (string, error) {
-	if flagSet {
-		trimmed := strings.TrimSpace(flagValue)
-		if trimmed == "" || strings.EqualFold(trimmed, noEnvironmentValue) {
-			return "", nil
-		}
-
-		for _, option := range hcpTFEnvironmentOptions() {
-			if option.Value == trimmed {
-				return trimmed, nil
-			}
-		}
-		return "", fmt.Errorf("invalid environment %q; allowed: dev, pre, prod, admin, or empty", trimmed)
+func resolveTerraformEnvironment(p *promptSession, flagValue string) (string, error) {
+	flagValue = strings.TrimSpace(flagValue)
+	if flagValue != "" {
+		return normalizeEnvironmentName(flagValue)
 	}
 
-	selected, err := selectOnePrompt(p, "Environment", hcpTFOptionalEnvironmentOptions(), 1)
+	selected, err := selectOnePrompt(p, "Environment", terraformEnvironmentOptions(), 0)
 	if err != nil {
 		return "", err
 	}
 	return selected.Value, nil
 }
 
-func hcpTFEnvironmentLabel(environment string) string {
-	for _, option := range hcpTFEnvironmentOptions() {
-		if option.Value == strings.TrimSpace(environment) {
-			return option.Label
-		}
-	}
-	return strings.TrimSpace(environment)
-}
-
-func configureLaunchAgentFlow(p *promptSession) {
-	configureFlow(p, "Generate launch-agent", []string{
-		"Application name",
-		"Command",
-		"Schedule type",
-		"Interval seconds",
-		"Hour (0–23)",
-		"Minute (0–59)",
-		"Run at load",
-	})
-}
-
-func configureAWSIAMProvisionerFlow(p *promptSession) {
-	labels := []string{
-		"VCS repo (owner/repo)",
-		"Environment",
-		"AWS account",
-		"AWS account ID",
-		"Managed policy ARNs (comma-separated)",
-	}
-	configureFlow(p, "Generate aws-iam-provisioner", labels)
-}
-
-func resolveApplicationName(p *promptSession, args []string, flagValue string) (string, error) {
-	normalizedFlag, err := normalizeApplicationName(flagValue)
-	if err != nil && strings.TrimSpace(flagValue) != "" {
-		return "", err
-	}
-
-	if len(args) > 0 {
-		normalizedArg, err := normalizeApplicationName(args[0])
-		if err != nil {
-			return "", err
-		}
-		if normalizedFlag != "" && normalizedFlag != normalizedArg {
-			return "", fmt.Errorf("application name %q does not match --application %q", normalizedArg, normalizedFlag)
-		}
-		return normalizedArg, nil
-	}
-
-	if normalizedFlag != "" {
-		return normalizedFlag, nil
-	}
-
-	rawValue, err := inputPrompt(p, "Application name", "", true)
-	if err != nil {
-		return "", err
-	}
-
-	return normalizeApplicationName(rawValue)
-}
-
-func resolveRequiredVCSRepo(p *promptSession, args []string, flagValue string) (string, error) {
-	normalizedFlag, err := normalizeVCSRepo(flagValue)
-	if err != nil && strings.TrimSpace(flagValue) != "" {
-		return "", err
-	}
-
-	if len(args) > 0 {
-		normalizedArg, err := normalizeVCSRepo(args[0])
-		if err != nil {
-			return "", err
-		}
-		if normalizedFlag != "" && normalizedFlag != normalizedArg {
-			return "", fmt.Errorf("vcs repo %q does not match --vcs-repo %q", normalizedArg, normalizedFlag)
-		}
-		return normalizedArg, nil
-	}
-
-	if normalizedFlag != "" {
-		return normalizedFlag, nil
-	}
-
-	rawValue, err := inputPrompt(p, "VCS repo (owner/repo)", "", true)
-	if err != nil {
-		return "", err
-	}
-
-	return normalizeVCSRepo(rawValue)
-}
-
-func normalizeApplicationName(value string) (string, error) {
+func normalizeEnvironmentName(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "", fmt.Errorf("application name must not be empty")
+		return "", fmt.Errorf("environment must not be empty")
 	}
-
-	var builder strings.Builder
-	previousWasSeparator := false
-	previousWasLowerOrDigit := false
-
-	for _, r := range value {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			isUpper := unicode.IsUpper(r)
-			if isUpper && previousWasLowerOrDigit && builder.Len() > 0 && !previousWasSeparator {
-				builder.WriteByte('-')
-			}
-			builder.WriteRune(unicode.ToLower(r))
-			previousWasSeparator = false
-			previousWasLowerOrDigit = unicode.IsLower(r) || unicode.IsDigit(r)
-		default:
-			if builder.Len() > 0 && !previousWasSeparator {
-				builder.WriteByte('-')
-				previousWasSeparator = true
-			}
-			previousWasLowerOrDigit = false
-		}
+	if !environmentNamePattern.MatchString(value) {
+		return "", fmt.Errorf("environment must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens")
 	}
-
-	normalized := strings.Trim(builder.String(), "-")
-	if normalized == "" {
-		return "", fmt.Errorf("application name must contain letters or digits")
-	}
-
-	return normalized, nil
+	return value, nil
 }
 
-func normalizeVCSRepo(value string) (string, error) {
+func resolveExecutionMode(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "", fmt.Errorf("vcs repo must not be empty")
+		return defaultTerraformMode, nil
 	}
-
-	parts := strings.Split(value, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("vcs repo must use owner/repo")
+	switch value {
+	case "remote", "local", "agent":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid execution mode %q; allowed: remote, local, agent", value)
 	}
-
-	owner := strings.TrimSpace(parts[0])
-	repo := strings.TrimSpace(parts[1])
-	if owner == "" || repo == "" {
-		return "", fmt.Errorf("vcs repo must use owner/repo")
-	}
-
-	return owner + "/" + repo, nil
-}
-
-func normalizeHCPTFWorkspaceTarget(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("HCP TF workspace must not be empty")
-	}
-
-	parts := strings.Split(value, "/")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("HCP TF workspace must use organization/project/workspace")
-	}
-
-	organization := strings.TrimSpace(parts[0])
-	project := strings.TrimSpace(parts[1])
-	workspace := strings.TrimSpace(parts[2])
-	if organization == "" || project == "" || workspace == "" {
-		return "", fmt.Errorf("HCP TF workspace must use organization/project/workspace")
-	}
-
-	return organization + "/" + project + "/" + workspace, nil
-}
-
-func resolveRequiredHCPTFWorkspaceTarget(p *promptSession, flagValue string) (string, error) {
-	flagValue = strings.TrimSpace(flagValue)
-	if flagValue != "" {
-		return normalizeHCPTFWorkspaceTarget(flagValue)
-	}
-
-	rawValue, err := inputPrompt(p, "HCP TF workspace (organization/project/workspace)", "", true)
-	if err != nil {
-		return "", err
-	}
-
-	return normalizeHCPTFWorkspaceTarget(rawValue)
-}
-
-func resolveRequiredText(p *promptSession, label, flagValue, defaultValue string) (string, error) {
-	flagValue = strings.TrimSpace(flagValue)
-	if flagValue != "" {
-		return flagValue, nil
-	}
-	return inputPrompt(p, label, defaultValue, true)
-}
-
-func resolveOptionalText(p *promptSession, label, flagValue, defaultValue string) (string, error) {
-	flagValue = strings.TrimSpace(flagValue)
-	if flagValue != "" {
-		return flagValue, nil
-	}
-	return inputPrompt(p, label, defaultValue, false)
-}
-
-func resolveSelect(p *promptSession, label, flagValue string, options []selectOption, defaultIndex int) (string, error) {
-	flagValue = strings.TrimSpace(flagValue)
-	if flagValue != "" {
-		for _, opt := range options {
-			if opt.Value == flagValue {
-				return flagValue, nil
-			}
-		}
-		allowed := make([]string, 0, len(options))
-		for _, opt := range options {
-			allowed = append(allowed, opt.Value)
-		}
-		return "", fmt.Errorf("invalid value %q for %s; allowed: %s", flagValue, label, strings.Join(allowed, ", "))
-	}
-	selected, err := selectOnePrompt(p, label, options, defaultIndex)
-	if err != nil {
-		return "", err
-	}
-	return selected.Value, nil
 }
 
 func resolveYesNo(p *promptSession, label string, flagChanged, flagValue, defaultValue bool) (bool, error) {
@@ -1034,311 +579,13 @@ func resolveYesNo(p *promptSession, label string, flagChanged, flagValue, defaul
 	return selected.Value == "yes", nil
 }
 
-func resolveCSV(p *promptSession, label string, flagValues, defaultValues []string) ([]string, error) {
-	if len(flagValues) > 0 {
-		return normalizeStringList(flagValues), nil
-	}
-	defaultText := strings.Join(defaultValues, ",")
-	raw, err := inputPrompt(p, label, defaultText, false)
-	if err != nil {
-		return nil, err
-	}
-	return parseCSVValues(raw), nil
-}
-
-func resolveInteger(p *promptSession, label string, flagChanged bool, flagValue, defaultValue int) (int, error) {
-	if flagChanged {
-		return flagValue, nil
-	}
-	for {
-		raw, err := inputPrompt(p, label, strconv.Itoa(defaultValue), true)
-		if err != nil {
-			return 0, err
-		}
-		n, err := strconv.Atoi(strings.TrimSpace(raw))
-		if err == nil {
-			return n, nil
-		}
-		fmt.Fprintln(p.out, "Enter a whole number.")
-	}
-}
-
-func normalizeStringList(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, v := range values {
-		t := strings.TrimSpace(v)
-		if t == "" {
-			continue
-		}
-		if _, ok := seen[t]; ok {
-			continue
-		}
-		seen[t] = struct{}{}
-		result = append(result, t)
-	}
-	return result
-}
-
-func parseCSVValues(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-
-	return normalizeStringList(strings.Split(raw, ","))
-}
-
-// scopedManifestName combines the GitHub owner and the application name so
-// the same repository name under different owners (e.g. alice/forge and
-// bob/forge) produces distinct metadata.name values and output directories.
-func scopedManifestName(owner, applicationName string) string {
-	normalizedOwner := normalizeOwnerSlug(owner)
-	if normalizedOwner == "" {
-		return applicationName
-	}
-	if strings.HasPrefix(applicationName, normalizedOwner+"-") {
-		return applicationName
-	}
-	return normalizedOwner + "-" + applicationName
-}
-
-// normalizeOwnerSlug lowercases the GitHub owner and replaces any runs of
-// disallowed characters with a single hyphen. It intentionally does not split
-// camelCase the way normalizeApplicationName does — GitHub logins are
-// case-insensitive, so "EmKayTec" should round-trip to "emkaytec" rather than
-// "em-kay-tec".
-func normalizeOwnerSlug(owner string) string {
-	owner = strings.TrimSpace(owner)
-	if owner == "" {
-		return ""
-	}
-
-	var b strings.Builder
-	previousHyphen := false
-	for _, r := range strings.ToLower(owner) {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			b.WriteRune(r)
-			previousHyphen = false
-		default:
-			if b.Len() > 0 && !previousHyphen {
-				b.WriteByte('-')
-				previousHyphen = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-func manifestNameFromVCSRepo(vcsRepo string) (string, error) {
-	owner, repo, err := splitVCSRepo(vcsRepo)
-	if err != nil {
-		return "", err
-	}
-
-	normalizedRepo, err := normalizeApplicationName(repo)
-	if err != nil {
-		return "", fmt.Errorf("vcs repo %q has invalid repository name: %w", vcsRepo, err)
-	}
-
-	return scopedManifestName(owner, normalizedRepo), nil
-}
-
-func applicationNameFromVCSRepo(vcsRepo string) (string, error) {
-	_, repo, err := splitVCSRepo(vcsRepo)
-	if err != nil {
-		return "", err
-	}
-
-	normalizedRepo, err := normalizeApplicationName(repo)
-	if err != nil {
-		return "", fmt.Errorf("vcs repo %q has invalid repository name: %w", vcsRepo, err)
-	}
-
-	return normalizedRepo, nil
-}
-
-func defaultAWSIAMProvisionerProviders() []oidc.Provider {
-	providers := make([]oidc.Provider, 0, 2)
-	for _, key := range []string{"github-actions", "hcp-terraform"} {
-		provider, ok := oidc.Lookup(key)
-		if !ok {
-			continue
-		}
-		providers = append(providers, provider)
-	}
-	return providers
-}
-
-func defaultAWSIAMProvisionerTargets(vcsRepo, environment string) (map[string]string, error) {
-	owner, _, err := splitVCSRepo(vcsRepo)
-	if err != nil {
-		return nil, err
-	}
-
-	workspaceName, err := workspaceNameFromVCSRepo(vcsRepo)
-	if err != nil {
-		return nil, err
-	}
-	workspaceName = appendHCPTFEnvironmentSuffix(workspaceName, environment)
-
-	return map[string]string{
-		"github-actions": vcsRepo,
-		"hcp-terraform":  strings.Join([]string{owner, defaultHCPTFProject, workspaceName}, "/"),
-	}, nil
-}
-
-func workspaceNameFromVCSRepo(vcsRepo string) (string, error) {
-	_, repo, err := splitVCSRepo(vcsRepo)
-	if err != nil {
-		return "", err
-	}
-
-	return repo, nil
-}
-
-func appendHCPTFEnvironmentSuffix(name, environment string) string {
-	environment = strings.TrimSpace(environment)
-	if environment == "" {
-		return name
-	}
-	return name + "-" + environment
-}
-
-func splitVCSRepo(vcsRepo string) (string, string, error) {
-	normalized, err := normalizeVCSRepo(vcsRepo)
-	if err != nil {
-		return "", "", err
-	}
-
-	parts := strings.SplitN(normalized, "/", 2)
-	return parts[0], parts[1], nil
-}
-
-func splitHCPTFWorkspaceTarget(target string) (string, string, string, error) {
-	normalized, err := normalizeHCPTFWorkspaceTarget(target)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	parts := strings.SplitN(normalized, "/", 3)
-	return parts[0], parts[1], parts[2], nil
-}
-
-func trimEnvironmentSuffix(name, environment string) string {
-	environment = strings.TrimSpace(environment)
-	if environment == "" {
-		return name
-	}
-
-	suffix := "-" + environment
-	if strings.HasSuffix(name, suffix) {
-		trimmed := strings.TrimSuffix(name, suffix)
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-
-	return name
-}
-
-// ghMemberships groups the GitHub identities a single token can act on
-// behalf of: the user's own login plus every organization they are a
-// member of.
-type ghMemberships struct {
-	Login string
-	Orgs  []string
-}
-
-const manualOwnerValue = "__manual__"
-
-// resolveGitHubOwner returns spec.owner from --owner or a prompt. When
-// prompting, Forge tries to fetch the authenticated user's login plus
-// their organization memberships and presents them as a selector; if the
-// lookup fails (no token, no network, reduced scopes) the prompt falls
-// back to a free-form text entry with no default.
-func resolveGitHubOwner(ctx context.Context, p *promptSession, flagValue string) (string, error) {
-	if trimmed := strings.TrimSpace(flagValue); trimmed != "" {
-		return trimmed, nil
-	}
-
-	memberships := currentGitHubMemberships(ctx)
-	if memberships.Login == "" {
-		return inputPrompt(p, "Repository owner", "", true)
-	}
-
-	options := make([]selectOption, 0, len(memberships.Orgs)+2)
-	options = append(options, selectOption{
-		Label: memberships.Login + " (personal)",
-		Value: memberships.Login,
-	})
-	for _, org := range memberships.Orgs {
-		options = append(options, selectOption{
-			Label: org + " (organization)",
-			Value: org,
-		})
-	}
-	options = append(options, selectOption{
-		Label: "Enter a different owner manually",
-		Value: manualOwnerValue,
-	})
-
-	selected, err := selectOnePrompt(p, "Repository owner", options, 0)
-	if err != nil {
-		return "", err
-	}
-	if selected.Value == manualOwnerValue {
-		return inputPrompt(p, "Repository owner", "", true)
-	}
-	return selected.Value, nil
-}
-
-// currentGitHubMemberships fetches the authenticated user's login plus
-// the organizations they belong to. A short timeout keeps slow networks
-// from stalling the generator; any failure (missing token, API error,
-// reduced token scopes, timeout) returns a zero value so the caller can
-// degrade to a free-form prompt. Org listing failures leave the login
-// populated so the selector still shows the personal account.
-var currentGitHubMemberships = func(ctx context.Context) ghMemberships {
-	client, err := ghapi.NewClientFromEnv()
-	if err != nil {
-		return ghMemberships{}
-	}
-
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	account, err := client.GetAuthenticatedUser(ctx)
-	if err != nil {
-		return ghMemberships{}
-	}
-
-	orgs, err := client.ListUserOrganizations(ctx)
-	if err != nil {
-		return ghMemberships{Login: account.Login}
-	}
-
-	logins := make([]string, 0, len(orgs))
-	for _, org := range orgs {
-		if trimmed := strings.TrimSpace(org.Login); trimmed != "" {
-			logins = append(logins, trimmed)
-		}
-	}
-	sort.Strings(logins)
-
-	return ghMemberships{Login: account.Login, Orgs: logins}
-}
-
 func resolveAWSAccountID(p *promptSession, accountProfile, accountID, preferredEnvironment string) (string, error) {
-	return resolveAWSAccountIDWithLabels(p, "AWS account", "AWS account ID", accountProfile, accountID, preferredEnvironment)
-}
-
-func resolveAWSAccountIDWithLabels(p *promptSession, accountLabel, accountIDLabel, accountProfile, accountID, preferredEnvironment string) (string, error) {
 	accountProfile = strings.TrimSpace(accountProfile)
 	accountID = strings.TrimSpace(accountID)
+
+	if accountProfile == "" && accountID != "" {
+		return validateAWSAccountID(accountID)
+	}
 
 	profiles, err := accounts.LoadProfiles()
 	if err != nil {
@@ -1351,391 +598,121 @@ func resolveAWSAccountIDWithLabels(p *promptSession, accountLabel, accountIDLabe
 			return "", fmt.Errorf("AWS profile %q was not found in local AWS config", accountProfile)
 		}
 		if accountID != "" {
-			return accountID, nil
+			return validateAWSAccountID(accountID)
 		}
 		if profile.AccountID == "" {
 			return "", fmt.Errorf("AWS profile %q does not expose an account ID; pass --account-id", accountProfile)
 		}
-		return profile.AccountID, nil
-	}
-
-	if accountID != "" {
-		return accountID, nil
+		return validateAWSAccountID(profile.AccountID)
 	}
 
 	if len(profiles) == 0 {
-		return inputPrompt(p, accountIDLabel, "", true)
+		value, err := inputPrompt(p, "AWS account ID", "", true)
+		if err != nil {
+			return "", err
+		}
+		return validateAWSAccountID(value)
 	}
 
-	orderedProfiles, defaultIndex := prioritizeAWSProfiles(profiles, preferredEnvironment)
-
+	orderedProfiles, defaultIndex := accounts.PrioritizeProfiles(profiles, preferredEnvironment)
 	options := make([]selectOption, 0, len(orderedProfiles)+1)
 	for _, profile := range orderedProfiles {
-		label := profile.Name
-		if profile.AccountID != "" {
-			label += " (" + profile.AccountID + ")"
-		} else {
-			label += " (account ID unavailable)"
-		}
-		options = append(options, selectOption{Label: label, Value: profile.Name})
+		options = append(options, selectOption{Label: accounts.Label(profile), Value: profile.Name})
 	}
 	options = append(options, selectOption{Label: "Enter an account ID manually", Value: "manual"})
 
-	selected, err := selectOnePrompt(p, accountLabel, options, defaultIndex)
+	selected, err := selectOnePrompt(p, "AWS account", options, defaultIndex)
 	if err != nil {
 		return "", err
 	}
 	if selected.Value == "manual" {
-		return inputPrompt(p, accountIDLabel, "", true)
+		value, err := inputPrompt(p, "AWS account ID", "", true)
+		if err != nil {
+			return "", err
+		}
+		return validateAWSAccountID(value)
 	}
 
 	profile, _ := accounts.FindProfile(orderedProfiles, selected.Value)
 	if profile.AccountID != "" {
-		return profile.AccountID, nil
+		return validateAWSAccountID(profile.AccountID)
 	}
 
-	return inputPrompt(p, accountIDLabel, "", true)
+	value, err := inputPrompt(p, "AWS account ID", "", true)
+	if err != nil {
+		return "", err
+	}
+	return validateAWSAccountID(value)
 }
 
-func prioritizeAWSProfiles(profiles []accounts.Profile, environment string) ([]accounts.Profile, int) {
-	environment = strings.TrimSpace(strings.ToLower(environment))
-	if environment == "" || len(profiles) == 0 {
-		return profiles, 0
+func validateAWSAccountID(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if !awsAccountIDPattern.MatchString(value) {
+		return "", fmt.Errorf("AWS account ID must be a 12-digit number")
 	}
-
-	matched := make([]accounts.Profile, 0, len(profiles))
-	other := make([]accounts.Profile, 0, len(profiles))
-	for _, profile := range profiles {
-		if awsProfileMatchesEnvironment(profile.Name, environment) {
-			matched = append(matched, profile)
-			continue
-		}
-		other = append(other, profile)
-	}
-
-	if len(matched) == 0 {
-		return profiles, 0
-	}
-
-	ordered := make([]accounts.Profile, 0, len(profiles))
-	ordered = append(ordered, matched...)
-	ordered = append(ordered, other...)
-	return ordered, 0
+	return value, nil
 }
 
-func awsProfileMatchesEnvironment(name, environment string) bool {
-	name = strings.TrimSpace(strings.ToLower(name))
-	if name == "" || environment == "" {
-		return false
-	}
-	if name == environment {
-		return true
-	}
-
-	tokens := strings.FieldsFunc(name, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
-	})
-	for _, token := range tokens {
-		if token == environment {
-			return true
-		}
-	}
-
-	return false
-}
-
-func resolveOIDCProviders(p *promptSession, providerKeys []string) ([]oidc.Provider, error) {
-	if len(providerKeys) > 0 {
-		resolved := make([]oidc.Provider, 0, len(providerKeys))
-		seen := map[string]struct{}{}
-		for _, providerKey := range providerKeys {
-			providerKey = strings.TrimSpace(providerKey)
-			if providerKey == "" {
+func normalizeStringList(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			t := strings.TrimSpace(part)
+			if t == "" {
 				continue
 			}
-			if _, ok := seen[providerKey]; ok {
+			if _, ok := seen[t]; ok {
 				continue
 			}
-			provider, ok := oidc.Lookup(providerKey)
-			if !ok {
-				return nil, fmt.Errorf("unsupported provider %q; use github-actions or hcp-terraform", providerKey)
-			}
-			seen[providerKey] = struct{}{}
-			resolved = append(resolved, provider)
-		}
-		if len(resolved) > 0 {
-			return resolved, nil
+			seen[t] = struct{}{}
+			result = append(result, t)
 		}
 	}
+	return result
+}
 
-	available := oidc.Providers()
-	options := make([]selectOption, 0, len(available))
-	for _, provider := range available {
-		options = append(options, selectOption{Label: provider.Label, Value: provider.Key})
-	}
+func boolPtr(v bool) *bool {
+	return &v
+}
 
-	selected, err := selectManyPrompt(p, "Provisioning systems", options, []int{0})
+func discoverManifestFiles(path string) ([]string, error) {
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
 
-	resolved := make([]oidc.Provider, 0, len(selected))
-	for _, option := range selected {
-		provider, _ := oidc.Lookup(option.Value)
-		resolved = append(resolved, provider)
-	}
-
-	return resolved, nil
-}
-
-func resolveProviderTargets(p *promptSession, providers []oidc.Provider, githubRepo, hcpWorkspace string) (map[string]string, error) {
-	targets := make(map[string]string, len(providers))
-
-	for _, provider := range providers {
-		target, err := resolveProviderTarget(p, provider, githubRepo, hcpWorkspace)
-		if err != nil {
-			return nil, err
+	if !info.IsDir() {
+		if !isYAMLFile(path) {
+			return nil, fmt.Errorf("%s is not a .yaml or .yml manifest file", path)
 		}
-		targets[provider.Key] = target
+		return []string{path}, nil
 	}
 
-	return targets, nil
-}
-
-func resolveProviderTarget(p *promptSession, provider oidc.Provider, githubRepo, hcpWorkspace string) (string, error) {
-	switch provider.Key {
-	case "github-actions":
-		return resolveRequiredVCSRepo(p, nil, githubRepo)
-	case "hcp-terraform":
-		return resolveRequiredHCPTFWorkspaceTarget(p, hcpWorkspace)
-	default:
-		return "", fmt.Errorf("unsupported provider %q", provider.Key)
-	}
-}
-
-func writeAWSIAMProvisionerManifest(cmd *cobra.Command, directoryName, manifestRootName, environment, accountID, generatorCommand string, providers []oidc.Provider, targets map[string]string, policies []string, outputDir string) error {
-	if len(providers) == 0 {
-		return fmt.Errorf("at least one OIDC provider must be configured for the IAM provisioner role")
-	}
-
-	trusts := make([]awsIAMProvisionerTrustTemplateData, 0, len(providers))
-	for _, provider := range providers {
-		target, ok := targets[provider.Key]
-		if !ok {
-			return fmt.Errorf("missing target identity for provider %q", provider.Key)
-		}
-
-		subject, err := provider.BuildSubject(target)
+	var files []string
+	if err := filepath.WalkDir(path, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
-		trusts = append(trusts, awsIAMProvisionerTrustTemplateData{
-			OIDCProvider: provider.Issuer,
-			OIDCSubject:  subject,
-		})
-	}
-
-	manifestName := appendHCPTFEnvironmentSuffix(manifestRootName, environment)
-	roleName, err := buildAWSIAMProvisionerRoleName(directoryName, environment)
-	if err != nil {
-		return err
-	}
-	filename := awsIAMProvisionerFilename(environment)
-
-	contents := renderAWSIAMProvisionerTemplateWithData(awsIAMProvisionerTemplateData{
-		GeneratorCommand: generatorCommand,
-		ApplicationName:  manifestName,
-		RoleName:         roleName,
-		AccountID:        accountID,
-		Trusts:           trusts,
-		ManagedPolicies:  policies,
-	})
-
-	return writeGeneratedManifestWithFilename(cmd, directoryName, "aws-iam-provisioner", filename, outputDir, contents)
-}
-
-func awsIAMProvisionerFilename(environment string) string {
-	environment = strings.TrimSpace(environment)
-	if environment == "" {
-		return "aws-iam-provisioner.yaml"
-	}
-	return fmt.Sprintf("aws-iam-provisioner-%s.yaml", environment)
-}
-
-func hcpTFWorkspaceFilename(environment string) string {
-	environment = strings.TrimSpace(environment)
-	if environment == "" {
-		return "hcp-tf-workspace.yml"
-	}
-	return "hcp-tf-workspace-" + environment + ".yml"
-}
-
-func buildAWSIAMProvisionerRoleName(baseName, environment string) (string, error) {
-	roleSuffix := "-provisioner-role"
-	if strings.TrimSpace(environment) != "" {
-		roleSuffix = "-" + environment + roleSuffix
-	}
-	maxApplicationLength := schema.AWSIAMRoleNameMaxLength - utf8.RuneCountInString(roleSuffix)
-	if maxApplicationLength <= 0 {
-		return "", fmt.Errorf("role suffix %q leaves no room for the application name", roleSuffix)
-	}
-
-	return truncateRunes(baseName, maxApplicationLength) + roleSuffix, nil
-}
-
-func truncateRunes(value string, maxRunes int) string {
-	if maxRunes <= 0 {
-		return ""
-	}
-	if utf8.RuneCountInString(value) <= maxRunes {
-		return value
-	}
-
-	runes := []rune(value)
-	return string(runes[:maxRunes])
-}
-
-func resolveManagedPolicies(p *promptSession, flagValues []string) ([]string, error) {
-	if len(flagValues) > 0 {
-		return normalizeStringList(flagValues), nil
-	}
-
-	defaultText := strings.Join(defaultManagedPolicies, ",")
-	raw, err := inputPrompt(p, "Managed policy ARNs (comma-separated)", defaultText, false)
-	if err != nil {
+		if entry.IsDir() {
+			return nil
+		}
+		if isYAMLFile(path) {
+			files = append(files, path)
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	return parseCSVValues(raw), nil
-}
 
-func renderGitHubRepoTemplateWithData(data gitHubRepoTemplateData) string {
-	return fmt.Sprintf(`# Generated by %q.
-apiVersion: forge/v1
-kind: GitHubRepository
-metadata:
-  # metadata.name scopes the manifest identifier to the owner so the same
-  # repository name under a different owner does not collide.
-  name: %q
-spec:
-  # spec.owner is the GitHub user or organization that will own the repository.
-  owner: %q
-  # spec.name is the GitHub repository name to create or manage.
-  name: %q
-  # visibility must be either public or private.
-  visibility: %s
-  # description is optional.
-  description: %q
-  # topics is optional and should use GitHub topic slugs.
-%s
-  # default_branch is optional; Forge defaults it to main when omitted.
-  default_branch: %s
-`, data.GeneratorCommand, data.ManifestName, data.Owner, data.ApplicationName, data.Visibility, data.Description, renderStringListBlock("topics", data.Topics), data.DefaultBranch)
-}
-
-func renderHCPTFWorkspaceTemplateWithData(data hcpTFWorkspaceTemplateData) string {
-	return fmt.Sprintf(`# Generated by %q.
-apiVersion: forge/v1
-kind: HCPTerraformWorkspace
-metadata:
-  # metadata.name is the stable manifest identifier derived from the VCS repo
-  # plus the optional environment suffix.
-  name: %q
-spec:
-  # spec.name is the HCP Terraform workspace name derived from the repo name
-  # plus the optional environment suffix.
-  name: %q
-  # environment is optional; when set it must be dev, pre, prod, or admin.
-  # Leave blank to manage a workspace with no environment suffix.
-  environment: %q
-  # organization is the HCP Terraform organization slug.
-  organization: %q
-  # project is optional and can group related workspaces.
-  project: %q
-  # account_id is written to the workspace as a terraform variable named account_id.
-  account_id: %q
-  # execution_mode must be remote, local, or agent.
-  execution_mode: %s
-  # terraform_version is optional and pins the workspace runtime.
-  terraform_version: %q
-`, data.GeneratorCommand, data.ManifestName, data.WorkspaceName, data.Environment, data.Organization, data.Project, data.AccountID, data.ExecutionMode, data.TerraformVersion)
-}
-
-func renderAWSIAMProvisionerTemplateWithData(data awsIAMProvisionerTemplateData) string {
-	return fmt.Sprintf(`# Generated by %q.
-apiVersion: forge/v1
-kind: AWSIAMProvisioner
-metadata:
-  # metadata.name is the application identifier plus the optional environment suffix.
-  name: %q
-spec:
-  # spec.name is the AWS IAM role Forge will manage for this application and environment.
-  name: %q
-  # account_id is the 12-digit AWS account identifier.
-  account_id: %q
-  # trusts is the list of OIDC issuers allowed to assume this role. A single
-  # role can trust multiple providers (for example, GitHub Actions and HCP
-  # Terraform) so that one application role serves both CI and Terraform runs.
-%s
-  # managed_policies is optional and attaches AWS managed policy ARNs.
-%s
-`, data.GeneratorCommand, data.ApplicationName, data.RoleName, data.AccountID, renderAWSIAMProvisionerTrustsBlock(data.Trusts), renderStringListBlock("managed_policies", data.ManagedPolicies))
-}
-
-func renderAWSIAMProvisionerTrustsBlock(trusts []awsIAMProvisionerTrustTemplateData) string {
-	if len(trusts) == 0 {
-		return "  trusts: []"
+	sort.Strings(files)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("%s does not contain any .yaml or .yml manifest files", path)
 	}
-
-	var builder strings.Builder
-	builder.WriteString("  trusts:\n")
-	for _, trust := range trusts {
-		builder.WriteString(fmt.Sprintf("    - oidc_provider: %q\n", trust.OIDCProvider))
-		builder.WriteString(fmt.Sprintf("      oidc_subject: %q\n", trust.OIDCSubject))
-	}
-	return strings.TrimSuffix(builder.String(), "\n")
+	return files, nil
 }
 
-func renderLaunchAgentTemplateWithData(data launchAgentTemplateData) string {
-	return fmt.Sprintf(`# Generated by %q.
-apiVersion: forge/v1
-kind: LaunchAgent
-metadata:
-  # metadata.name is the stable manifest identifier Forge reports on.
-  name: %q
-spec:
-  # spec.name is the operator-facing name for this launch agent.
-  name: %q
-  # label is the macOS launchd label and should stay globally unique.
-  label: %q
-  # command is the full command line launchd should execute.
-  command: %q
-  schedule:
-    # type must be interval or calendar.
-    type: %s
-%s
-  # run_at_load controls whether the agent also runs on load.
-  run_at_load: %t
-`, data.GeneratorCommand, data.ApplicationName, data.ApplicationName, data.Label, data.Command, data.ScheduleType, renderLaunchAgentSchedule(data), data.RunAtLoad)
-}
-
-func renderStringListBlock(field string, values []string) string {
-	if len(values) == 0 {
-		return fmt.Sprintf("  %s: []", field)
-	}
-
-	var builder strings.Builder
-	builder.WriteString("  " + field + ":\n")
-	for _, value := range values {
-		builder.WriteString(fmt.Sprintf("    - %q\n", value))
-	}
-	return strings.TrimSuffix(builder.String(), "\n")
-}
-
-func renderLaunchAgentSchedule(data launchAgentTemplateData) string {
-	if data.ScheduleType == "calendar" {
-		return fmt.Sprintf("    # interval_seconds is only used for interval schedules.\n    # interval_seconds: 86400\n    # hour and minute are required for calendar schedules.\n    hour: %d\n    minute: %d", data.Hour, data.Minute)
-	}
-
-	return fmt.Sprintf("    # interval_seconds is required for interval schedules.\n    interval_seconds: %d\n    # hour and minute are only used for calendar schedules.\n    # hour: 9\n    # minute: 30", data.IntervalSeconds)
+func isYAMLFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".yaml" || ext == ".yml"
 }

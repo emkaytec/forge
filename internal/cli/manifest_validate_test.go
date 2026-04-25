@@ -8,22 +8,18 @@ import (
 	"testing"
 )
 
-func TestRunManifestValidateAcceptsSingleManifestFile(t *testing.T) {
+func TestRunManifestValidateAcceptsSingleAnvilManifestFile(t *testing.T) {
 	tempDir := t.TempDir()
 
-	path := filepath.Join(tempDir, "brew-update.yaml")
+	path := filepath.Join(tempDir, "docs-site.yaml")
 	if err := os.WriteFile(path, []byte(`
-apiVersion: forge/v1
-kind: LaunchAgent
+apiVersion: anvil.emkaytec.dev/v1alpha1
+kind: GitHubRepository
 metadata:
-  name: brew-update
+  name: docs-site
 spec:
-  name: brew-update
-  label: dev.emkaytec.brew-update
-  command: /opt/homebrew/bin/brew update
-  schedule:
-    type: interval
-    interval_seconds: 86400
+  repository:
+    visibility: public
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -46,31 +42,34 @@ spec:
 
 func TestRunManifestValidateAcceptsManifestDirectory(t *testing.T) {
 	tempDir := t.TempDir()
-	manifestsDir := filepath.Join(tempDir, "manifests")
+	manifestsDir := filepath.Join(tempDir, ".forge")
 	if err := os.MkdirAll(manifestsDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
 	files := map[string]string{
-		"github.yaml": `
-apiVersion: forge/v1
+		"docs-site.yaml": `
+apiVersion: anvil.emkaytec.dev/v1alpha1
 kind: GitHubRepository
 metadata:
-  name: sample-repo
+  name: docs-site
 spec:
-  owner: emkaytec
-  name: sample-repo
-  visibility: public
+  repository:
+    visibility: public
 `,
-		"workspace.yml": `
-apiVersion: forge/v1
-kind: HCPTerraformWorkspace
+		"complete-service.yml": `
+apiVersion: anvil.emkaytec.dev/v1alpha1
+kind: GitHubRepository
 metadata:
-  name: platform
+  name: complete-service
 spec:
-  name: platform
-  organization: example-org
-  execution_mode: remote
+  createTerraformWorkspaces: true
+  repository:
+    visibility: private
+  environments:
+    admin:
+      aws:
+        accountId: "123456789012"
 `,
 	}
 
@@ -88,12 +87,12 @@ spec:
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), filepath.Join(manifestsDir, "github.yaml")+" is valid") {
-		t.Fatalf("expected github.yaml success output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), filepath.Join(manifestsDir, "complete-service.yml")+" is valid") {
+		t.Fatalf("expected complete-service.yml success output, got %q", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), filepath.Join(manifestsDir, "workspace.yml")+" is valid") {
-		t.Fatalf("expected workspace.yml success output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), filepath.Join(manifestsDir, "docs-site.yaml")+" is valid") {
+		t.Fatalf("expected docs-site.yaml success output, got %q", stdout.String())
 	}
 
 	if stderr.Len() != 0 {
@@ -106,16 +105,17 @@ func TestRunManifestValidateReportsActionableErrors(t *testing.T) {
 
 	path := filepath.Join(tempDir, "broken.yaml")
 	if err := os.WriteFile(path, []byte(`
-apiVersion: forge/v1
-kind: AWSIAMProvisioner
+apiVersion: anvil.emkaytec.dev/v1alpha1
+kind: GitHubRepository
 metadata:
-  name: github-actions
+  name: complete-service
 spec:
-  name: github-actions
-  account_id: "123456789012"
-  oidc_provider: token.actions.githubusercontent.com
-  oidc_subject: repo:emkaytec/forge:ref:refs/heads/main
-  assume_role_policy: {}
+  createTerraformWorkspaces: true
+  repository:
+    visibility: private
+  environments:
+    admin:
+      aws: {}
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -132,12 +132,8 @@ spec:
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(stderr.String(), "assume_role_policy") {
-		t.Fatalf("expected unsupported field in stderr, got %q", stderr.String())
-	}
-
-	if !strings.Contains(stderr.String(), "remove unknown fields or rename them to a supported schema field") {
-		t.Fatalf("expected actionable guidance in stderr, got %q", stderr.String())
+	if !strings.Contains(stderr.String(), "spec.environments.admin.aws.accountId") {
+		t.Fatalf("expected accountId guidance in stderr, got %q", stderr.String())
 	}
 
 	if stdout.Len() != 0 {

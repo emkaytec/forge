@@ -276,10 +276,14 @@ func TestRunWithHelpListsWorkflowGroup(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	for _, want := range []string{"Workflow\n  manifest", "reconcile", "workstation"} {
+	for _, want := range []string{"Workflow\n  manifest", "workstation"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected workflow group entry %q in help output, got %q", want, stdout.String())
 		}
+	}
+
+	if strings.Contains(stdout.String(), "reconcile") {
+		t.Fatalf("did not expect removed reconcile command in help output, got %q", stdout.String())
 	}
 }
 
@@ -299,7 +303,29 @@ func TestRunWithManifestShowsGenerateSubcommand(t *testing.T) {
 		t.Fatalf("expected generate subcommand in output, got %q", stdout.String())
 	}
 
+	if strings.Contains(stdout.String(), "compose") {
+		t.Fatalf("did not expect removed compose subcommand in output, got %q", stdout.String())
+	}
+
 	if stderr.Len() != 0 {
 		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRunWithReconcileCommandIsUnknown(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run([]string{"reconcile"}, &stdout, &stderr, "dev")
+	if err == nil {
+		t.Fatal("expected error for removed reconcile command")
+	}
+
+	if !strings.Contains(err.Error(), `unknown command "reconcile"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got %q", stdout.String())
 	}
 }

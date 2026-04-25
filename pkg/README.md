@@ -7,7 +7,7 @@ Staging area for types and primitives that are candidates for migration to the s
 Forge is part of a repo family with deliberate boundaries:
 
 - `forge` owns operator-facing CLI behavior.
-- `anvil` owns reconciliation runtime behavior.
+- `anvil` owns the Terraform-first baseline architecture workflow.
 - `alloy` owns shared schema types, kind constants, and schema-oriented validation.
 
 Code that logically belongs in `alloy` often needs to ship inside Forge first — the alloy carve-out is a future milestone, not a prerequisite. `pkg/` is the named parking spot for that code. Placing an alloy-candidate here makes the intent visible in code review and keeps the eventual migration mechanical.
@@ -27,4 +27,4 @@ Each file should include a short comment noting its alloy-candidate status so fu
 
 ## Current contents
 
-`pkg/schema/` now holds Forge's first alloy-candidate manifest envelope, kind constants, and typed schema validation helpers. The package is intentionally narrow and now backs the shipped `forge manifest generate` and `forge manifest validate` commands while still keeping the eventual migration into `alloy` mechanical.
+`pkg/schema/` holds Forge's earlier alloy-candidate manifest envelope, kind constants, and typed schema validation helpers. The current `forge manifest` command surface now emits and validates the Anvil Terraform YAML shape directly under `internal/manifest`; this package remains staged implementation history until it is either migrated deliberately or removed in a later cleanup.

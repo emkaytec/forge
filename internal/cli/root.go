@@ -10,7 +10,6 @@ import (
 
 	"github.com/emkaytec/forge/internal/initcmd"
 	"github.com/emkaytec/forge/internal/manifest"
-	"github.com/emkaytec/forge/internal/reconcilecmd"
 	"github.com/emkaytec/forge/internal/ui"
 	selfupdate "github.com/emkaytec/forge/internal/update"
 	"github.com/emkaytec/forge/internal/workstation"
@@ -72,7 +71,6 @@ func newRootCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 		{initcmd.Command(), setupGroupID},
 		{newUpdateCommand(version), setupGroupID},
 		{manifest.Command(), workflowGroupID},
-		{reconcilecmd.Command(), workflowGroupID},
 		{workstation.Command(), workflowGroupID},
 	}
 	for _, assignment := range groupAssignments {

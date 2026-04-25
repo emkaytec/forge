@@ -14,8 +14,8 @@ func TestDiscoverManifestsRecursesIntoSubdirectories(t *testing.T) {
 
 	root := t.TempDir()
 
-	// Mimic a "one application per subdirectory" layout the CI-style
-	// `forge reconcile` invocation needs to support.
+	// Mimic the older "one application per subdirectory" layout this
+	// staged discovery helper supported.
 	appOne := filepath.Join(root, "app-one")
 	appTwo := filepath.Join(root, "app-two", "nested")
 	for _, dir := range []string{appOne, appTwo} {
@@ -25,11 +25,11 @@ func TestDiscoverManifestsRecursesIntoSubdirectories(t *testing.T) {
 	}
 
 	writes := map[string]string{
-		filepath.Join(appOne, "github-repo.yaml"):      "placeholder\n",
-		filepath.Join(appOne, "hcp-tf-workspace.yml"):  "placeholder\n",
-		filepath.Join(appTwo, "launch-agent.yaml"):     "placeholder\n",
-		filepath.Join(root, "README.md"):               "ignored\n",
-		filepath.Join(appOne, "notes.txt"):             "ignored\n",
+		filepath.Join(appOne, "github-repo.yaml"):     "placeholder\n",
+		filepath.Join(appOne, "hcp-tf-workspace.yml"): "placeholder\n",
+		filepath.Join(appTwo, "launch-agent.yaml"):    "placeholder\n",
+		filepath.Join(root, "README.md"):              "ignored\n",
+		filepath.Join(appOne, "notes.txt"):            "ignored\n",
 	}
 	for path, body := range writes {
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {

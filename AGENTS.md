@@ -4,7 +4,7 @@
 
 Forge is the operator-facing umbrella CLI for imperative automation across cloud infrastructure, DevOps workflows, and local development environment setup.
 
-It is a Go CLI intended to gather focused automation entrypoints under one product shell while preserving clear boundaries around shared schema, reconciliation behavior, and private operational data.
+It is a Go CLI intended to gather focused automation entrypoints under one product shell while preserving clear boundaries around Terraform composition, shared schema ownership, and private operational data.
 
 Forge is not a background service, a generic plugin platform, or a mandate to collapse every sibling repository into one code path immediately.
 
@@ -12,7 +12,7 @@ Forge is not a background service, a generic plugin platform, or a mandate to co
 
 - Keep command behavior explicit, readable, and easy to debug.
 - Prefer practical automation flows over abstraction-heavy framework design.
-- Preserve deliberate boundaries between product shell, reconciliation code, and shared schema ownership.
+- Preserve deliberate boundaries between product shell, Terraform composition code, and shared schema ownership.
 - Keep public repository contents sanitized and safe for portfolio use.
 - Add scope intentionally rather than chasing provider or workflow parity all at once.
 - Favor standard library solutions first unless a dependency is clearly justified.
@@ -22,7 +22,7 @@ Forge is not a background service, a generic plugin platform, or a mandate to co
 Forge is the umbrella product shell, but the current repo family boundaries still matter.
 
 - `forge` owns the top-level CLI experience and imperative automation workflows that belong under the Forge product.
-- `anvil` owns reconciliation runtime behavior unless code is intentionally migrated.
+- `anvil` owns the Terraform-first baseline architecture workflow that consumes Forge-authored manifests.
 - `alloy` owns shared schema types, kind constants, and schema-oriented validation.
 - Higher-level composition or migration should not silently blur those boundaries.
 
@@ -36,6 +36,7 @@ Initial expected scope:
 
 - a lightweight Go CLI entrypoint
 - room for imperative automation commands spanning cloud, DevOps, and workstation setup
+- Anvil-compatible manifest authoring for the narrow supported resource set
 - public-facing docs that explain the product boundary clearly
 - ADR scaffolding for durable architectural decisions
 
@@ -46,6 +47,8 @@ Forge bootstrap does not include:
 - a finalized monorepo migration
 - copied schema definitions that belong in `alloy`
 - duplicated reconciliation logic from `anvil`
+- a public `forge reconcile` command surface
+- multi-resource manifest composition workflows
 - embedded real manifests, secrets, or environment-specific operational data
 - speculative framework or plugin infrastructure
 

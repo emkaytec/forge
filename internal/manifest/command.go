@@ -6,10 +6,9 @@ import "github.com/spf13/cobra"
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "manifest",
-		Short: "Generate and validate Forge manifests",
+		Short: "Generate and validate Anvil manifests",
 	}
 
-	cmd.AddCommand(newComposeCommand())
 	cmd.AddCommand(newGenerateCommand())
 	cmd.AddCommand(newValidateCommand())
 

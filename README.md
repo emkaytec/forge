@@ -8,12 +8,12 @@ This repository is the public product repository for Forge. It is intended to sh
 
 This repository is an initial working scaffold.
 
-The current bootstrap establishes the public project shape, a lightweight Go CLI entrypoint, the first manifest authoring and validation workflow, and the durable guidance/docs structure the repository will build on.
+The current bootstrap establishes the public project shape, a lightweight Go CLI entrypoint, Anvil-oriented manifest authoring and validation, and the durable guidance/docs structure the repository will build on.
 
 Forge is intended to act as the umbrella CLI in the broader repo family. That does not erase the existing roles of sibling projects overnight:
 
 - `forge` is the product shell for operator-facing imperative automation
-- `anvil` remains the reconciliation engine boundary unless and until code is intentionally moved
+- `anvil` owns the Terraform-first baseline architecture workflow that consumes Forge-authored manifests
 - `alloy` remains the shared schema and validation boundary
 
 ## Core Principles
@@ -62,7 +62,7 @@ go run ./cmd/forge --help
 Generate a starter manifest in the current directory with:
 
 ```bash
-go run ./cmd/forge manifest generate launch-agent brew-update
+go run ./cmd/forge manifest generate github-repo docs-site
 ```
 
 Validate one manifest file or every manifest in a directory with:
@@ -86,27 +86,31 @@ go build -o bin/forge ./cmd/forge
 
 ## Manifest Workflows
 
-Forge now ships a `manifest` command domain for starter manifest authoring and schema validation.
+Forge ships a `manifest` command domain for authoring and validating the Anvil Terraform YAML consumed from the root `.forge/` directory.
 
-- `forge manifest compose`
-- `forge manifest compose terraform-github-repo [application]`
 - `forge manifest generate github-repo <name>`
-- `forge manifest generate hcp-tf-workspace <vcs-repo>`
-- `forge manifest generate aws-iam-provisioner <vcs-repo>`
-- `forge manifest generate launch-agent <name>`
 - `forge manifest validate <file-or-directory>`
 
-`forge manifest generate ...` writes one primitive manifest at a time. `forge manifest compose` lists the available higher-level blueprints, and each blueprint command documents how to emit several primitive manifests from one prompt flow.
+`forge manifest generate github-repo` writes one `GitHubRepository` manifest to `.forge/<name>.yaml`. The generated YAML uses `apiVersion: anvil.emkaytec.dev/v1alpha1`, nests repository settings under `spec.repository`, and keeps the optional Terraform workspace fan-out in the same file.
 
-`forge manifest compose terraform-github-repo` starts with the same repo inputs as `forge manifest generate github-repo`, then prompts for one or more deployment environments, the AWS account for each selected environment, and the shared HCP Terraform plus IAM settings needed to fan out a full repo stack. It writes:
+For a standalone repository:
 
-- `.forge/<application>/github-repo.yaml`
-- `.forge/<application>/hcp-tf-workspace-<env>.yml` for each selected environment
-- `.forge/<application>/aws-iam-provisioner-<env>.yaml` for each selected environment (a single role trusted by both GitHub Actions and HCP Terraform)
+```bash
+go run ./cmd/forge manifest generate github-repo docs-site
+```
 
-Generated manifests write `.forge/<directory>/<resource>.yaml` under the current directory by default. The `.forge` container keeps generated manifests grouped together; `forge reconcile` descends into it automatically even though it's a hidden directory. `github-repo` uses the application name for the shared directory while keeping `metadata.name` owner-scoped. `hcp-tf-workspace` writes `hcp-tf-workspace-<env>.yml` (or `hcp-tf-workspace.yml` when no environment suffix is selected), uses the repository name for the shared directory, and keeps `metadata.name` owner-scoped. `aws-iam-provisioner` uses the repository name for the shared directory, writes a single `aws-iam-provisioner[-<env>].yaml` whose IAM role trusts both the GitHub Actions and HCP Terraform OIDC providers, keeps `metadata.name` owner-scoped, and uses the repository name for `spec.name`. Pass `--dir <relative-path>` to place generated files under a different relative directory.
+For a Terraform-backed repository, pass `--terraform` or answer yes when prompted. Forge then asks for the minimum environment and AWS account information needed by the Anvil module workflow:
 
-The launch-agent example in [examples/brew-update.yaml](examples/brew-update.yaml) shows the manifest-driven local automation pattern currently favored in Forge instead of a bespoke `forge local` workflow.
+```bash
+go run ./cmd/forge manifest generate github-repo complete-service \
+  --terraform \
+  --environment admin \
+  --account-id 123456789012
+```
+
+The resulting Terraform-backed manifest includes `spec.createTerraformWorkspaces: true`, `spec.environments.<environment>.aws.accountId`, and conservative workspace defaults such as `workspace.executionMode: remote`. Optional details like descriptions, topics, homepage, project name, and Terraform version can be supplied with flags without expanding the interactive prompt flow.
+
+Generated examples use sanitized placeholder data only. See [examples/github-repo.yaml](examples/github-repo.yaml) for the standalone shape.
 
 ## Workstation Workflows
 
@@ -158,25 +162,6 @@ Forge now ships an `init` command domain for one-time bootstrap work that is eas
 - HCP Terraform at `https://app.terraform.io` with audience `aws.workload.identity`
 
 The command is idempotent. Re-running it reports whether each provider was created or already existed. It only bootstraps the identity providers; IAM roles and attached policies remain managed through `AWSIAMProvisioner` manifests.
-
-## Reconcile Workflows
-
-Forge now ships a `reconcile` command domain for plan-first reconciliation by execution target.
-
-- `forge reconcile local <file-or-dir>`
-- `forge reconcile remote <file-or-dir>`
-- `forge reconcile local --apply <file-or-dir>`
-- `forge reconcile remote --apply --strict <file-or-dir>`
-
-Both commands build and print a plan first. They default to a dry plan and require `--apply` before mutating live state. `--strict` fails when the manifest tree contains kinds that are incompatible with the selected target instead of skipping them.
-
-`forge reconcile remote` currently manages the staged remote kinds directly inside Forge while keeping the package layout ready for a later carve-out back into `anvil`:
-
-- `GitHubRepository` reads the target owner from `spec.owner` (a user or organization the authenticated token can manage). Forge resolves the GitHub token in this order: `GITHUB_TOKEN`, `GH_TOKEN`, then `gh auth token` — so an already authenticated `gh` CLI is enough for day-to-day use, while CI can keep setting `GITHUB_TOKEN` explicitly. `forge manifest generate github-repo` prompts for the owner and defaults to the current GitHub login when any of those sources is available.
-- `HCPTerraformWorkspace` uses `TF_TOKEN_app_terraform_io` or `TFE_TOKEN`.
-- `AWSIAMProvisioner` uses the ambient AWS CLI session and expects the shared OIDC providers from `forge init aws-oidc` to exist first.
-
-`forge reconcile local` remains the home for workstation-local kinds such as `LaunchAgent`, which do not belong in `anvil`.
 
 ## CI/CD
 

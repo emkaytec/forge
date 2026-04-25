@@ -11,10 +11,9 @@ import (
 	"github.com/emkaytec/forge/pkg/schema"
 )
 
-// forgeManifestDir is the hidden container that wraps per-application
-// manifest directories written by `forge manifest generate` and
-// `forge manifest compose` (e.g. .forge/<application>/github-repo.yaml).
-// The walker descends into it even though it starts with a dot.
+// forgeManifestDir is the hidden container used by Forge and Anvil manifest
+// workflows. The staged reconcile walker descends into it even though it
+// starts with a dot.
 const forgeManifestDir = ".forge"
 
 // DiscoverManifests returns the sorted list of manifest file paths
