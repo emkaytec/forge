@@ -1,0 +1,13 @@
+name: Hello world
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  hello-world:
+    runs-on: codeberg-tiny
+    steps:
+      - name: Say hello
+        run: echo "Hello world"
